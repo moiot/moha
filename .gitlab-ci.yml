@@ -1,0 +1,38 @@
+stages:
+  - build
+  - test
+  - deploy
+
+compile:
+  stage: build
+  script:
+    - make docker-agent
+
+unit test:
+  stage: test
+  script:
+    - docker run --rm --name make_test -v `pwd`:/go/src/git.mobike.io/database/mysql-agent -w /go/src/git.mobike.io/database/mysql-agent docker.mobike.io/databases/golang:1.9.2 make test
+
+integration test:
+  stage: test
+  script:
+    - make integration-test
+  after_script:
+    - make clean-data
+
+release:
+  stage: deploy
+  variables:
+    docker_image: docker.mobike.io/databases/mysql-agent:$CI_COMMIT_TAG
+   # latest_image: docker.mobike.io/databases/mysql-agent:latest
+  script:
+    - make docker-agent
+    - docker build -t $docker_image ./etc/docker-compose/agent
+    #- docker tag $docker_image $latest_image
+    - docker push $docker_image
+    #- docker push $latest_image
+    - docker image rm $docker_image
+    #- docker image rm $latest_image
+    - docker image prune -f
+  only:
+    - tags

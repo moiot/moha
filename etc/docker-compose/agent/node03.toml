@@ -1,0 +1,48 @@
+# mysql-agent configuration
+
+cluster-name = "node-test"
+
+leader-lease-ttl = 20
+shutdown-threshold = 5
+register-ttl = 10
+
+# a comma separated list of etcd endpoints
+etcd-urls = "http://etcd-node-0:2379,http://etcd-node-1:2379,http://etcd-node-2:2379"
+etcd-root-path = "/dbproxy/clustername/ks_cfg/nodes"
+etcd-username = "root"
+etcd-password = "root"
+# path to the config data directory
+data-dir = "/tmp/agent01"
+# listen addr
+addr = "http://127.0.0.1:13306"
+internal-service-host = "mysql-node-3"
+external-service-host = "127.0.0.1:3309"
+
+only-follow = true
+
+fork-process-file = "/usr/local/bin/docker-entrypoint.sh"
+fork-process-args = [
+    "docker-entrypoint.sh",
+    "mysqld",
+    "--defaults-file=/etc/my.cnf",
+    "--server-id=3"
+]
+fork-process-wait-second = 30
+
+# log related
+log-file = "/agent/log/mysql-agent-3.log"
+error-log = "/agent/log/mysql-agent-error-3.log"
+log-level = "info"
+log-max-size = 30
+log-max-days = 5
+log-compress = true
+
+[db-config]
+host = "127.0.0.1"
+user = "root"
+password = "master_root_pwd"
+port = 3306
+timeout = "1s"
+replication_user = "replication"
+replication_password = "replication_pwd"
+replication_net = "%"

@@ -1,0 +1,275 @@
+// Copyright 2018 MOBIKE, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package agent
+
+import (
+	"context"
+
+	"time"
+
+	"sync/atomic"
+
+	"git.mobike.io/database/mysql-agent/pkg/log"
+	"github.com/coreos/etcd/clientv3"
+	"github.com/coreos/etcd/mvcc/mvccpb"
+	"github.com/juju/errors"
+)
+
+var (
+	leaderPath = "master"
+)
+
+func (s *Server) getLeader() (string, *mvccpb.KeyValue, error) {
+
+	client := s.node.RawClient()
+
+	data, kv, err := client.Get(s.ctx, leaderPath)
+
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return "", nil, nil
+		}
+		return "", nil, errors.Trace(err)
+	}
+
+	return string(data), kv, nil
+
+}
+
+func (s *Server) deleteLeaderKey() error {
+	resp, err := s.node.RawClient().Txn(s.ctx).
+		If(s.leaderCmp()).
+		Then(clientv3.OpDelete(s.fullLeaderPath())).
+		Commit()
+	if err != nil {
+		return errors.Trace(err)
+	}
+	if !resp.Succeeded {
+		return errors.New("resign leader failed, we are not leader already")
+	}
+	return nil
+
+}
+
+func (s *Server) isSameLeader(leaderID string) bool {
+	return leaderID == s.node.ID()
+}
+
+func (s *Server) watchLeader(revision int64) error {
+	client := s.node.RawClient()
+	watcher := client.NewWatcher()
+	defer watcher.Close()
+
+	ctx, cancel := context.WithCancel(s.ctx)
+	defer cancel()
+
+	for {
+		var rch clientv3.WatchChan
+		if revision == 0 {
+			rch = watcher.Watch(ctx, s.fullLeaderPath())
+		} else {
+			rch = watcher.Watch(ctx, s.fullLeaderPath(), clientv3.WithRev(revision))
+		}
+		for watchResp := range rch {
+			if err := watchResp.Err(); err != nil {
+				if revision == 0 {
+					log.Error("watch ", leaderPath, " with the latest revision has an error ", err)
+				} else {
+					log.Error("watch ", leaderPath, " with revision ", revision, " has an error ", err)
+				}
+				return err
+			}
+
+			if watchResp.Canceled {
+				log.Infof("watch '%s' is canceled", leaderPath)
+				return nil
+			}
+
+			for _, ev := range watchResp.Events {
+				if ev.Type == mvccpb.DELETE {
+					log.Info("leader is deleted")
+					return nil
+				}
+			}
+		}
+
+		// if rch closes, detect whether the ctx is closed.
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+			// if the ctx is not closed, try to establish a new watch
+			time.Sleep(100 * time.Millisecond)
+			log.Info("ctx is not close but watch response channel is closed, try to establish a new watch")
+		}
+	}
+}
+
+// resumeLeader generate a new lease and tries to resume the leader loop with that lease,
+// return true and leaseResponse if success
+// return false and nil if not success
+func (s *Server) resumeLeader() (bool, *clientv3.LeaseGrantResponse, error) {
+	client := s.node.RawClient()
+	// Init a new lease
+	lessor := client.NewLease()
+	defer lessor.Close()
+	ctx, cancelFunc := context.WithCancel(s.ctx)
+	defer cancelFunc()
+	lr, err := lessor.Grant(ctx, s.cfg.LeaderLeaseTTL)
+	if err != nil {
+		log.Error(err)
+		return false, nil, errors.Trace(err)
+	}
+
+	resp, err := client.Txn(ctx).
+		If(s.leaderCmp()).
+		Then(clientv3.OpPut(s.fullLeaderPath(), leaderValue, clientv3.WithLease(lr.ID))).
+		Commit()
+
+	if err != nil {
+		log.Error("error when resume leader ", err)
+		return false, nil, errors.Trace(err)
+	}
+
+	if !resp.Succeeded {
+		return false, nil, nil
+	}
+	s.updateLeaseExpireTS()
+	return true, lr, nil
+}
+
+// campaignLeader tries to campaign the leaser,
+// return true and leaseResponse if success
+// return false and nil if not success
+func (s *Server) campaignLeader() (bool, *clientv3.LeaseGrantResponse, error) {
+	client := s.node.RawClient()
+	// Init a new lease
+	lessor := client.NewLease()
+	defer lessor.Close()
+	ctx, cancelFunc := context.WithCancel(s.ctx)
+	defer cancelFunc()
+	lr, err := lessor.Grant(ctx, s.cfg.LeaderLeaseTTL)
+	if err != nil {
+		log.Error(err)
+		return false, nil, errors.Trace(err)
+	}
+
+	resp, err := client.Txn(ctx).
+		If(clientv3.Compare(clientv3.CreateRevision(s.fullLeaderPath()), "=", 0)).
+		Then(clientv3.OpPut(s.fullLeaderPath(), leaderValue, clientv3.WithLease(lr.ID))).
+		Commit()
+
+	if err != nil {
+		log.Info("error when campaign leader ", err)
+		return false, nil, errors.Trace(err)
+	}
+
+	if !resp.Succeeded {
+		return false, nil, nil
+	}
+	s.updateLeaseExpireTS()
+	return true, lr, nil
+}
+
+func (s *Server) keepLeaderAliveLoop(leaderLeaseID int64) {
+	defer func() {
+		if atomic.LoadInt32(&s.isClosed) != 1 {
+			// if server.isClosed == 1, service must have already been set readonly successfully.
+			s.setServiceReadonlyOrShutdown()
+		}
+	}()
+
+	// start lease expire monitor
+	go s.leaseExpireMonitorLoop()
+
+	client := s.node.RawClient()
+	// now current node is the leader, keep alive lease and set leader flag to true
+	lessor := client.NewLease()
+	defer lessor.Close()
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+	log.Infof("current node is the leader '%s'", s.node.ID())
+
+	for {
+		select {
+		case <-ticker.C:
+			ctx, cancel := context.WithTimeout(s.ctx, 100*time.Millisecond)
+			lkar, err := lessor.KeepAliveOnce(ctx, clientv3.LeaseID(leaderLeaseID))
+			cancel()
+			for err != nil {
+				log.Warn("lease keep alive has error, so retry. leaseID: ", leaderLeaseID, "error: ", err)
+				// add retry logic, now only retry once
+				time.Sleep(100 * time.Millisecond)
+				ctx, cancel = context.WithTimeout(s.ctx, 100*time.Millisecond)
+				lkar, err = lessor.KeepAliveOnce(ctx, clientv3.LeaseID(leaderLeaseID))
+				cancel()
+			}
+			s.updateLeaseExpireTS()
+			log.Info("lease has remain ttl ", lkar.TTL)
+		case <-s.leaderStopCh:
+			log.Info("receive leader alive end channel")
+			return
+		case <-s.ctx.Done():
+			log.Warn("server is closed, so exit keepLeaderAlive")
+			return
+		}
+	}
+}
+
+func (s *Server) updateLeaseExpireTS() {
+
+	atomic.StoreInt64(&s.leaseExpireTS, time.Now().
+		Add(time.Duration(s.cfg.LeaderLeaseTTL)*time.Second).
+		Add(-time.Duration(s.cfg.ShutdownThreshold)*time.Second).Unix())
+
+}
+
+// TODO check reset logic
+func (s *Server) leaseExpireMonitorLoop() {
+
+	timer := time.NewTimer(0)
+	defer timer.Stop()
+	for {
+		select {
+		case <-timer.C:
+			expire := atomic.LoadInt64(&s.leaseExpireTS)
+			now := time.Now().Unix()
+			delta := expire - now
+			if delta <= 0 {
+				log.Error("lease expire ts has reached, lease may be expired, so force close the server")
+				log.Errorf("current ts is %d while lease expire ts is %d", now, expire)
+				s.forceClose()
+			}
+			timer.Reset(time.Duration(delta) * time.Second)
+		case <-s.leaderStopCh:
+			log.Info("receive leader stop channel")
+			return
+		case <-s.ctx.Done():
+			log.Warn("server is closed, so exit leaseExpireMonitorLoop")
+			return
+		}
+	}
+
+}
+
+func (s *Server) leaderCmp() clientv3.Cmp {
+	return clientv3.Compare(
+		clientv3.Value(s.node.RawClient().KeyWithRootPath(leaderPath)),
+		"=",
+		leaderValue)
+}
+
+func (s *Server) fullLeaderPath() string {
+	return s.node.RawClient().KeyWithRootPath(leaderPath)
+}

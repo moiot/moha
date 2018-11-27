@@ -1,0 +1,174 @@
+version: '3.3'
+
+services:
+    mysql-test-1:
+        build: ./agent
+        ports:
+            - "3308:3306"
+            - "13308:13306"
+        entrypoint: "/agent/supervise"
+        volumes:
+            - ./agent/node01.toml:/agent/config.toml
+            - ../../logs:/agent/log:rw
+            - ./agent/my.cnf:/etc/my.cnf
+            - mysql-node-1-data:/agent/mysql:rw
+        container_name: mysql-node-1
+        environment:
+              MYSQL_DATABASE: checker
+              MYSQL_PASSWORD: mysql_master_user_pwd
+              MYSQL_REPLICATION_PASSWORD: replication_pwd
+              MYSQL_REPLICATION_USER: replication
+              MYSQL_ROOT_PASSWORD: master_root_pwd
+              MYSQL_USER: mysql_user
+              MYSQL_SOCKET: /tmp/mysql.sock
+              MYSQL_PID_FILE: /tmp/mysql.pid
+    mysql-test-2:
+        build: ./agent
+        ports:
+            - "3307:3306"
+            - "13307:13306"
+        entrypoint: "/agent/supervise"
+        volumes:
+            - ./agent/node02.toml:/agent/config.toml
+            - ../../logs:/agent/log:rw
+            - ./agent/my.cnf:/etc/my.cnf
+            - mysql-node-2-data:/agent/mysql:rw
+        container_name: mysql-node-2
+        environment:
+              MYSQL_DATABASE: checker
+              MYSQL_PASSWORD: mysql_master_user_pwd
+              MYSQL_REPLICATION_PASSWORD: replication_pwd
+              MYSQL_REPLICATION_USER: replication
+              MYSQL_ROOT_PASSWORD: master_root_pwd
+              MYSQL_USER: mysql_user
+              MYSQL_SOCKET: /tmp/mysql.sock
+              MYSQL_PID_FILE: /tmp/mysql.pid
+    mysql-test-3:
+        build: ./agent
+        ports:
+            - "3309:3306"
+            - "13309:13306"
+        entrypoint: "/agent/supervise"
+        volumes:
+            - ./agent/node03.toml:/agent/config.toml
+            - ../../logs:/agent/log:rw
+            - ./agent/my.cnf:/etc/my.cnf
+            - mysql-node-3-data:/agent/mysql:rw
+        container_name: mysql-node-3
+        environment:
+              MYSQL_DATABASE: checker
+              MYSQL_PASSWORD: mysql_master_user_pwd
+              MYSQL_REPLICATION_PASSWORD: replication_pwd
+              MYSQL_REPLICATION_USER: replication
+              MYSQL_ROOT_PASSWORD: master_root_pwd
+              MYSQL_USER: mysql_user
+              MYSQL_SOCKET: /tmp/mysql.sock
+              MYSQL_PID_FILE: /tmp/mysql.pid
+    etcd0:
+        image: docker.mobike.io/databases/etcd:v3.3.2
+        ports:
+            - "32768:2379"
+        volumes:
+            - etcd0:/etcd_data
+        environment:
+            ETCDCTL_API: 3
+        container_name: etcd-node-0
+        command:
+            - /usr/local/bin/etcd
+            - -name
+            - etcd0
+            - --data-dir
+            - /etcd_data
+            - -advertise-client-urls
+            - http://etcd0:2379
+            - -listen-client-urls
+            - http://0.0.0.0:2379
+            - -initial-advertise-peer-urls
+            - http://etcd0:2380
+            - -listen-peer-urls
+            - http://0.0.0.0:2380
+            - -initial-cluster
+            - etcd0=http://etcd0:2380,etcd1=http://etcd1:2380,etcd2=http://etcd2:2380
+    etcd1:
+        image: docker.mobike.io/databases/etcd:v3.3.2
+        ports:
+            - "32769:2379"
+        volumes:
+            - etcd1:/etcd_data
+        environment:
+            ETCDCTL_API: 3
+        container_name: etcd-node-1
+        command:
+            - /usr/local/bin/etcd
+            - -name
+            - etcd1
+            - --data-dir
+            - /etcd_data
+            - -advertise-client-urls
+            - http://etcd1:2379
+            - -listen-client-urls
+            - http://0.0.0.0:2379
+            - -initial-advertise-peer-urls
+            - http://etcd1:2380
+            - -listen-peer-urls
+            - http://0.0.0.0:2380
+            - -initial-cluster
+            - etcd0=http://etcd0:2380,etcd1=http://etcd1:2380,etcd2=http://etcd2:2380
+    etcd2:
+        image: docker.mobike.io/databases/etcd:v3.3.2
+        ports:
+            - "32770:2379"
+        volumes:
+            - etcd2:/etcd_data
+        environment:
+            ETCDCTL_API: 3
+        container_name: etcd-node-2
+        command:
+            - /usr/local/bin/etcd
+            - -name
+            - etcd2
+            - --data-dir
+            - /etcd_data
+            - -advertise-client-urls
+            - http://etcd2:2379
+            - -listen-client-urls
+            - http://0.0.0.0:2379
+            - -initial-advertise-peer-urls
+            - http://etcd2:2380
+            - -listen-peer-urls
+            - http://0.0.0.0:2380
+            - -initial-cluster
+            - etcd0=http://etcd0:2380,etcd1=http://etcd1:2380,etcd2=http://etcd2:2380
+
+    pmm-server:
+        image: docker.mobike.io/databases/pmm-server:1.13.0
+        ports:
+            - "8080:80"
+            - "3000:3000"
+            - "9090:9090"
+            - "8500:8500"
+        container_name: pmm-server
+        environment:
+            - METRICS_RETENTION=192h
+            - ORCHESTRATOR_ENABLED=true
+            - ORCHESTRATOR_USER=orc_client_user
+            - ORCHESTRATOR_PASSWORD=orc_client_password
+        volumes:
+            - ./prometheus-mysql-agent.yml:/etc/prometheus-mysql-agent.yml
+            - pmm-data-prometheus:/opt/prometheus/data
+            - pmm-data-consul:/opt/consul-data
+            - pmm-data-mysql:/var/lib/mysql
+            - pmm-data-grafana:/var/lib/grafana
+
+volumes:
+    etcd0: {}
+    etcd1: {}
+    etcd2: {}
+    mysql-node-1-data: {}
+    mysql-node-2-data: {}
+    mysql-node-3-data: {}
+    pmm-data-prometheus: {}
+    pmm-data-consul: {}
+    pmm-data-mysql: {}
+    pmm-data-grafana: {}
+

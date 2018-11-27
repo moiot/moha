@@ -1,0 +1,23 @@
+version: '3.3'
+services:
+    mysql_service_1:
+        image: docker.mobike.io/databases/mysql-agent:master-tag
+        network_mode: host
+        entrypoint: /agent/supervise
+        volumes:
+            -  /mysql-data:/var/lib/mysql:rw
+            -  /mysql-agent-config.toml:/agent/config.toml
+            -  /mysql-agent-log:/agent/log:rw
+            -  /mysql-my.cnf:/etc/my.cnf
+            -  /tmp:/tmp
+            -  /data1/mysql:/data1/mysql
+            -  /etc/localtime:/etc/localtime:ro
+        container_name: mysql_1
+        environment:
+              MYSQL_DATABASE: database_name
+              MYSQL_PASSWORD: mysql_password
+              MYSQL_REPLICATION_PASSWORD: mysql_replication_password
+              MYSQL_REPLICATION_USER: repl
+              MYSQL_ROOT_PASSWORD: mysql_root_password
+              MYSQL_USER: root
+              MYSQL_SOCKET: /tmp/my.sock

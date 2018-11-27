@@ -1,0 +1,18 @@
+# mysql-agent-checker configuration
+cluster-name = "node-test"
+# a comma separated list of etcd endpoints
+etcd-urls = "http://127.0.0.1:32768,http://127.0.0.1:32769,http://127.0.0.1:32770"
+etcd-root-path = "/dbproxy/clustername/ks_cfg/nodes"
+etcd-username = "root"
+etcd-password = "root"
+max-counter = 100
+
+[db-config]
+host = "127.0.0.1"
+user = "mysql_user"
+password = "mysql_master_user_pwd"
+port = 3306
+timeout = "5s"
+replication_user = "replication"
+replication_password = "replication_pwd"
+replication_net = "%"

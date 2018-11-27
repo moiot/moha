@@ -1,0 +1,50 @@
+# mysql-agent configuration
+
+cluster-name = "node-test"  # 集群的名称
+
+# lease 相关配置
+leader-lease-ttl = 20
+shutdown-threshold = 5
+register-ttl = 10
+
+# etcd configs
+# a comma separated list of etcd endpoints
+etcd-urls = 'http://etcd1:2379,http://etcd2:2379,http://etcd3:2379'
+etcd-root-path = '/etcd-root-path/'  # cluster-name 和 etcd-root-path 共同构成了 etcd key 的前缀
+etcd-username = 'root'
+etcd-password = 'root'
+# path to the config data directory
+data-dir = '/tmp/agent01'
+# listen addr
+addr = 'http://127.0.0.1:13306'           # agent 提供 HTTP 服务的端口
+internal-service-host = 'mysql_1:3306'    # 容器间 ip 端口
+external-service-host = '127.0.0.1:3306'  # 宿主机 ip 端口
+
+# 启动 MySQL 的相关参数
+fork-process-file = '/usr/local/bin/docker-entrypoint.sh'
+fork-process-args = [
+    'docker-entrypoint.sh',
+    'mysqld',
+    '--defaults-file=/etc/my.cnf'
+]
+# 等待 MySQL 启动成功的时间
+fork-process-wait-second = 60
+
+# log related
+log-file = '/agent/log/mysql-agent.log'
+log-level = 'info'
+log-max-size = 30
+log-max-days = 5
+log-compress = true
+shutdown-threshold = 5
+
+# 连接 MySQL 的相关配置
+[db-config]
+host = '127.0.0.1'
+user = 'root'
+password = 'mysql_root_password'
+port = 3306
+timeout = '1s'
+replication_user = 'repl'
+replication_password = 'mysql_replication_password'
+replication_net = '%'

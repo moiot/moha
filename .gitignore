@@ -10,3 +10,16 @@
 
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
+
+*~
+.DS_Store
+
+bin
+
+logs/*.log
+
+*.iml
+.idea
+
+etc/docker-compose/agent/mysql-agent*
+etc/docker-compose/agent/supervise
