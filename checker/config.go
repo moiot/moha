@@ -28,7 +28,7 @@ const (
 	// DefaultName is the default name of the command line.
 	DefaultName            = "mysql-agent-checker"
 	defaultEtcdURLs        = "http://127.0.0.1:2379"
-	defaultEtcdDialTimeout = 5 * time.Second
+	defaultEtcdDialTimeout = 2 * time.Second
 )
 
 // Config is the config of checker
@@ -49,7 +49,17 @@ type Config struct {
 	LogFile   string `toml:"log-file" json:"log-file"`
 	LogRotate string `toml:"log-rotate" json:"log-rotate"`
 
-	DBConfig mysql.DBConfig `toml:"db-config" json:"db-config"`
+	DBConfig     mysql.DBConfig `toml:"db-config" json:"db-config"`
+	RootUser     string         `toml:"root-user" json:"user"`
+	RootPassword string         `toml:"root-password" json:"password"`
+
+	IDContainerMapping map[string]string `toml:"id-container-mapping" json:"id-container-mapping"`
+	ContainerAZMapping map[string]string `toml:"container-az-mapping" json:"container-az-mapping"`
+
+	PartitionTemplate string `toml:"partition-template" json:"partition-template"`
+	PartitionType     string `toml:"partition-type" json:"partition-type"`
+
+	ChaosJob string
 
 	configFile   string
 	printVersion bool
@@ -76,6 +86,7 @@ func NewConfig() *Config {
 	fs.StringVar(&cfg.LogFile, "log-file", "", "log file path")
 	fs.StringVar(&cfg.LogRotate, "log-rotate", "", "log file rotate type, hour/day")
 	// misc related configuration.
+	fs.StringVar(&cfg.ChaosJob, "chaos", "change_master", fmt.Sprintf("the name of the chaos job checker runs"))
 	fs.StringVar(&cfg.configFile, "config", "", fmt.Sprintf("path to the %s configuration file", DefaultName))
 	fs.BoolVar(&cfg.printVersion, "V", false, "print version info")
 

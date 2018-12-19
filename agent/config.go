@@ -80,6 +80,8 @@ type Config struct {
 	ForkProcessArgs       []string `toml:"fork-process-args" json:"fork-process-args"`
 	ForkProcessWaitSecond int      `toml:"fork-process-wait-second" json:"fork-process-wait-second"`
 
+	CampaignWaitTime time.Duration
+
 	fd int
 
 	configFile   string
@@ -89,7 +91,8 @@ type Config struct {
 // NewConfig return an instance of configuration
 func NewConfig() *Config {
 	cfg := &Config{
-		EtcdDialTimeout: defaultEtcdDialTimeout,
+		EtcdDialTimeout:  defaultEtcdDialTimeout,
+		CampaignWaitTime: 2 * time.Second,
 	}
 
 	cfg.FlagSet = flag.NewFlagSet(DefaultName, flag.ContinueOnError)

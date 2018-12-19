@@ -2,12 +2,12 @@
 
 cluster-name = "node-test"
 
-leader-lease-ttl = 20
+leader-lease-ttl = 10
 shutdown-threshold = 5
-register-ttl = 10
+register-ttl = 5
 
 # a comma separated list of etcd endpoints
-etcd-urls = "http://etcd-node-0:2379,http://etcd-node-1:2379,http://etcd-node-2:2379"
+etcd-urls = "http://etcd-node-0:2379,http://etcd-node-1:2379,http://etcd-node-2:2379,http://etcd-node-3:2379,http://etcd-node-4:2379"
 etcd-root-path = "/dbproxy/clustername/ks_cfg/nodes"
 etcd-username = "root"
 etcd-password = "root"
@@ -18,7 +18,7 @@ addr = "http://127.0.0.1:13306"
 internal-service-host = "mysql-node-3"
 external-service-host = "127.0.0.1:3309"
 
-only-follow = true
+only-follow = false
 
 fork-process-file = "/usr/local/bin/docker-entrypoint.sh"
 fork-process-args = [
@@ -39,8 +39,8 @@ log-compress = true
 
 [db-config]
 host = "127.0.0.1"
-user = "root"
-password = "master_root_pwd"
+user = "mysql_user"
+password = "mysql_master_user_pwd"
 port = 3306
 timeout = "1s"
 replication_user = "replication"

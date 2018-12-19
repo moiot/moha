@@ -14,32 +14,24 @@
 package agent
 
 import (
-	"testing"
-
 	"context"
-
-	"sync/atomic"
-
-	"net/http"
-
 	"database/sql"
-
+	"encoding/json"
+	"net/http"
+	"os"
+	"runtime"
+	"runtime/debug"
+	"strings"
+	"sync/atomic"
+	"testing"
 	"time"
 
-	"runtime/debug"
-
-	"strings"
-
-	"os"
-
-	"runtime"
-
 	"git.mobike.io/database/mysql-agent/pkg/etcd"
-	"git.mobike.io/database/mysql-agent/pkg/log"
-	// import for size-effect
+	"git.mobike.io/database/mysql-agent/pkg/log" // import for size-effect
 	_ "github.com/coreos/bbolt"
 	"github.com/coreos/etcd/clientv3"
 	"github.com/coreos/etcd/integration"
+	"github.com/juju/errors"
 	"gopkg.in/DATA-DOG/go-sqlmock.v1"
 	. "gopkg.in/check.v1"
 )
@@ -98,7 +90,7 @@ func SetUp() {
 	mockCfg = &Config{
 		LeaderLeaseTTL:      10,
 		ShutdownThreshold:   3,
-		RegisterTTL:         5,
+		RegisterTTL:         1,
 		EtcdUsername:        "root",
 		EtcdDialTimeout:     10 * time.Second,
 		OnlyFollow:          false,
@@ -190,13 +182,39 @@ func (t *testAgentServerSuite) TestSetReadWrite(c *C) {
 	c.Assert(string(w.content), Equals, "current node is not leader, so no need to set readwrite\n")
 }
 
-func (t *testAgentServerSuite) TestUpdateBinlogPos(c *C) {
+func (t *testAgentServerSuite) TestUpdateBinlogPosAsMaster(c *C) {
 	db, mock, err := sqlmock.New()
 	c.Assert(err, IsNil)
+	mock.ExpectQuery("SELECT @@server_uuid").
+		WillReturnRows(sqlmock.
+			NewRows([]string{"@@server_uuid"}).
+			AddRow("53ea0ed1-9bf8-11e6-8bea-64006a897c73"))
 	mock.ExpectQuery("SHOW MASTER STATUS").
 		WillReturnRows(sqlmock.
 			NewRows([]string{"File", "Position", "Binlog_Do_DB", "Binlog_Ignore_DB", "Executed_Gtid_Set"}).
 			AddRow("mysql-bin.000005", 188858056, "", "", "85ab69d1-b21f-11e6-9c5e-64006a8978d2:1-46"))
+
+	s := newMockServer()
+	s.setIsLeaderToTrue()
+	defer os.RemoveAll(s.cfg.DataDir)
+	s.db = db
+
+	err = s.loadUUID()
+	log.Error("error is ", err)
+	c.Assert(err, IsNil)
+	err = s.updateBinlogPos()
+	log.Error("error is ", err)
+	c.Assert(err, IsNil)
+
+	c.Assert(latestPos.UUID, Equals, "53ea0ed1-9bf8-11e6-8bea-64006a897c73")
+	c.Assert(latestPos.File, Equals, "mysql-bin.000005")
+	c.Assert(latestPos.Pos, Equals, "188858056")
+	c.Assert(latestPos.GTID, Equals, "85ab69d1-b21f-11e6-9c5e-64006a8978d2:1-46")
+}
+
+func (t *testAgentServerSuite) TestUpdateBinlogPosAsSlave(c *C) {
+	db, mock, err := sqlmock.New()
+	c.Assert(err, IsNil)
 	mock.ExpectQuery("SELECT @@server_uuid").
 		WillReturnRows(sqlmock.
 			NewRows([]string{"@@server_uuid"}).
@@ -208,9 +226,12 @@ func (t *testAgentServerSuite) TestUpdateBinlogPos(c *C) {
 			AddRow("mysql-bin.000005", 188858056, "85ab69d1-b21f-11e6-9c5e-64006a8978d2:1-46",
 				"85ab69d1-b21f-11e6-9c5e-64006a8978d2", "Yes", "Yes"))
 	s := newMockServer()
+	s.setIsLeaderToFalse()
 	defer os.RemoveAll(s.cfg.DataDir)
 	s.db = db
 
+	err = s.loadUUID()
+	c.Assert(err, IsNil)
 	err = s.updateBinlogPos()
 	log.Error("error is ", err)
 	c.Assert(err, IsNil)
@@ -289,7 +310,9 @@ func (t *testAgentServerSuite) TestLeaderLoopAsResumer(c *C) {
 	s := newMockServer()
 	defer os.RemoveAll(s.cfg.DataDir)
 	s.node.RawClient().Put(s.ctx, leaderPath, s.node.ID())
-	leader, _, _ := s.getLeader()
+	leader, _, err := s.getLeaderAndMyTerm()
+	c.Assert(err, IsNil)
+
 	log.Info("current leader is ", leader)
 	go func() {
 		defer func() {
@@ -300,9 +323,39 @@ func (t *testAgentServerSuite) TestLeaderLoopAsResumer(c *C) {
 		s.leaderLoop()
 	}()
 	time.Sleep(1 * time.Second)
+	_, _, err = s.node.RawClient().Get(s.ctx, "single_point_master")
+	log.Info("full path of single_point_master is ", s.fullPathOf("single_point_master"))
+	log.Info("error is ", err)
+	c.Assert(err, NotNil)
+	c.Assert(errors.IsNotFound(err), Equals, true)
 
 	s.Close()
+}
 
+func (t *testAgentServerSuite) TestLeaderLoopAsSPMResumer(c *C) {
+
+	s := newMockServer()
+	defer os.RemoveAll(s.cfg.DataDir)
+	s.node.RawClient().Put(s.ctx, leaderPath, s.node.ID())
+	s.node.RawClient().Put(s.ctx, "single_point_master", s.node.ID())
+	leader, _, err := s.getLeaderAndMyTerm()
+	c.Assert(err, IsNil)
+
+	log.Info("current leader is ", leader)
+	go func() {
+		defer func() {
+			if err := recover(); err != nil {
+				log.Errorf("leader loop panic. error: %s, stack: %s", err, debug.Stack())
+			}
+		}()
+		s.leaderLoop()
+	}()
+	time.Sleep(1 * time.Second)
+	bs, _, err := s.node.RawClient().Get(s.ctx, "single_point_master")
+	c.Assert(err, IsNil)
+	c.Assert(string(bs), Equals, s.node.ID())
+
+	s.Close()
 }
 
 func (t *testAgentServerSuite) TestDoChangeMasterIsFormerIsNew(c *C) {
@@ -317,7 +370,7 @@ func (t *testAgentServerSuite) TestDoChangeMasterIsFormerIsNew(c *C) {
 	err := s.node.RawClient().Put(ctx, leaderPath, leaderValue)
 	c.Assert(err, IsNil)
 
-	err = s.doChangeMaster()
+	err = s.doChangeMaster(&Leader{name: leaderValue})
 	c.Assert(err, IsNil)
 }
 
@@ -331,8 +384,8 @@ func (t *testAgentServerSuite) TestDoChangeMasterIsFormerNotNew(c *C) {
 
 	c.Assert(err, IsNil)
 
-	err = s.doChangeMaster()
-	log.Info(funcName(), " error is ", err)
+	err = s.doChangeMaster(&Leader{name: "another_leader"})
+	log.Info(funcName(1), " error is ", err)
 	c.Assert(err, IsNil)
 
 }
@@ -356,7 +409,7 @@ func (t *testAgentServerSuite) TestDoChangeMasterNotFormerIsNew(c *C) {
 
 	c.Assert(err, IsNil)
 
-	err = s.doChangeMaster()
+	err = s.doChangeMaster(&Leader{name: leaderValue})
 	c.Assert(err, IsNil)
 
 }
@@ -371,8 +424,145 @@ func (t *testAgentServerSuite) TestDoChangeMasterNotFormerNotNew(c *C) {
 
 	c.Assert(err, IsNil)
 
-	err = s.doChangeMaster()
+	err = s.doChangeMaster(&Leader{name: "another_leader"})
 	c.Assert(err, IsNil)
+
+}
+
+func (t *testAgentServerSuite) TestPreWatchWithTerm0(c *C) {
+	s := newMockServer()
+	defer os.RemoveAll(s.cfg.DataDir)
+
+	s.term = 0
+	leader := &Leader{}
+	err := s.preWatch(leader)
+	c.Assert(err, IsNil)
+	bs, _, err := s.node.RawClient().Get(s.ctx, s.myTermPath())
+	c.Assert(err, IsNil)
+	c.Assert(string(bs), Equals, "0")
+
+}
+
+func (t *testAgentServerSuite) TestPreWatchWithTermEquals(c *C) {
+	s := newMockServer()
+	defer os.RemoveAll(s.cfg.DataDir)
+
+	s.term = 5
+	leader := &Leader{
+		meta: LeaderMeta{term: 5},
+	}
+	err := s.preWatch(leader)
+	c.Assert(err, IsNil)
+	bs, _, err := s.node.RawClient().Get(s.ctx, s.myTermPath())
+	c.Assert(err, IsNil)
+	c.Assert(string(bs), Equals, "5")
+}
+
+func (t *testAgentServerSuite) TestPreWatchWithTermLessThan2(c *C) {
+	s := newMockServer()
+	defer os.RemoveAll(s.cfg.DataDir)
+
+	s.term = 3
+	leader := &Leader{
+		meta: LeaderMeta{term: 5},
+	}
+	err := s.preWatch(leader)
+	c.Assert(err, NotNil)
+	c.Assert(errors.IsNotValid(err), Equals, true)
+}
+
+func (t *testAgentServerSuite) TestPreWatchWithTermLarger(c *C) {
+	s := newMockServer()
+	defer os.RemoveAll(s.cfg.DataDir)
+
+	s.term = 10
+	s.lastUUID = "abc"
+	s.lastGTID = "abc:12,1bd:20"
+	leader := &Leader{
+		meta: LeaderMeta{
+			lastUUID: "abc",
+			lastGTID: "abc:12,1bd:20",
+			term:     5,
+		},
+	}
+	s.preWatch(leader)
+	//TODO This case should not happen. So no need to verify
+}
+
+func (t *testAgentServerSuite) TestPreWatchWithTermLessThan1(c *C) {
+	s := newMockServer()
+	defer os.RemoveAll(s.cfg.DataDir)
+
+	s.term = 4
+	s.lastUUID = "4dbb4cbc-a4e4-11e7-b054-bc3f8ff8605c"
+	s.lastGTID = "4dbb4cbc-a4e4-11e7-b054-bc3f8ff8605c:1-12"
+
+	leader := &Leader{
+		meta: LeaderMeta{
+			lastUUID: "4dbb4cbc-a4e4-11e7-b054-bc3f8ff8605c",
+			lastGTID: "4dbb4cbc-a4e4-11e7-b054-bc3f8ff8605c:1-12",
+			term:     5,
+		},
+	}
+	err := s.preWatch(leader)
+	c.Assert(err, IsNil)
+	c.Assert(s.term, Equals, uint64(5))
+	bs, _, err := s.node.RawClient().Get(s.ctx, s.myTermPath())
+	c.Assert(err, IsNil)
+	c.Assert(string(bs), Equals, "5")
+
+	// with invalid gtid
+	s.term = 4
+	s.lastUUID = "4dbb4cbc-a4e4-11e7-b054-bc3f8ff8605c"
+	s.lastGTID = "4dbb4cbc-a4e4-11e7-b054-bc3f8ff8605c:1-15"
+	err = s.preWatch(leader)
+	c.Assert(err, NotNil)
+	c.Assert(errors.IsNotValid(err), Equals, true)
+
+	s.term = 4
+	s.lastUUID = "4dbb4cbc-a4e4-11e7-b054-bc3f8ff8606c"
+	s.lastGTID = "4dbb4cbc-a4e4-11e7-b054-bc3f8ff8606c:1-15"
+	err = s.preWatch(leader)
+	c.Assert(err, NotNil)
+	c.Assert(errors.IsNotValid(err), Equals, true)
+
+	s.term = 4
+	s.lastUUID = "4dbb4cbc-a4e4-11e7-b054-bc3f8ff8605c"
+	s.lastGTID = "4dbb4cbc-a4e4-11e7-b054-bc3f8ff8606c:1-15"
+	err = s.preWatch(leader)
+	c.Assert(err, NotNil)
+
+}
+
+func (t *testAgentServerSuite) TestPreCampaignAsSlave(c *C) {
+	s := newMockServer()
+	defer os.RemoveAll(s.cfg.DataDir)
+
+	db, mock, err := sqlmock.New()
+	c.Assert(err, IsNil)
+	mock.ExpectQuery("SHOW SLAVE STATUS").
+		WillReturnRows(sqlmock.
+			NewRows([]string{"Relay_Master_Log_File", "Exec_Master_Log_Pos", "Executed_Gtid_Set",
+				"Master_UUID", "IO_Thread", "SQL_Thread"}).
+			AddRow("mysql-bin.000005", 188858056, "85ab69d1-b21f-11e6-9c5e-64006a8978d2:1-46",
+				"85ab69d1-b21f-11e6-9c5e-64006a8978d2", "Yes", "Yes"))
+	s.db = db
+
+	s.cfg.CampaignWaitTime = 1 * time.Second
+
+	var electionLog LogForElection
+	electionLog.Term = s.term + 1
+	electionLog.LastUUID = s.lastUUID
+	electionLog.LastGTID = s.lastGTID
+	bs, err := json.Marshal(electionLog)
+	s.node.RawClient().Put(s.ctx, join(electionPath, "nodes", "another_agent"), string(bs))
+
+	startTime := time.Now()
+	isSingleMaster := s.preCampaign(false)
+	c.Assert(isSingleMaster, Equals, false)
+	duration := time.Now().Sub(startTime)
+	c.Assert(duration >= 2*s.cfg.CampaignWaitTime, Equals, true)
+	c.Assert(duration < 3*s.cfg.CampaignWaitTime, Equals, true)
 
 }
 
@@ -419,8 +609,10 @@ type MockNode struct {
 	id     string
 }
 
-func (n *MockNode) ID() string                                 { return "unique_id" }
-func (n *MockNode) Register(ctx context.Context) error         { return nil }
+func (n *MockNode) ID() string { return "unique_id" }
+func (n *MockNode) Register(ctx context.Context) error {
+	return n.RawClient().Put(ctx, join("slave", n.ID()), "place_holder")
+}
 func (n *MockNode) Unregister(ctx context.Context) error       { return nil }
 func (n *MockNode) Heartbeat(ctx context.Context) <-chan error { return nil }
 func (n *MockNode) RawClient() *etcd.Client                    { return n.client }
@@ -493,8 +685,8 @@ func (m *MockResponseWriter) Write(b []byte) (int, error) {
 }
 func (m *MockResponseWriter) WriteHeader(int) {}
 
-func funcName() string {
-	pc, _, _, _ := runtime.Caller(1)
+func funcName(skip int) string {
+	pc, _, _, _ := runtime.Caller(skip)
 	n := runtime.FuncForPC(pc).Name()
 	ns := strings.Split(n, ".")
 	return ns[len(ns)-1]
@@ -502,8 +694,8 @@ func funcName() string {
 
 func newMockServer() *Server {
 	cfg := *mockCfg
-	cfg.DataDir = funcName()
-	cfg.EtcdRootPath = funcName()
+	cfg.DataDir = funcName(2)
+	cfg.EtcdRootPath = funcName(2)
 	s, _ := NewServer(&cfg)
 	s.serviceManager = mockServiceManager
 	s.node.Register(s.ctx)
@@ -512,5 +704,6 @@ func newMockServer() *Server {
 		"another_leader",
 		"host1",
 		"host1", 100)
+	log.Infof("new mockserver cfg is %+v", cfg)
 	return s
 }

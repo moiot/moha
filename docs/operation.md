@@ -10,8 +10,8 @@ agent 的发布是基于 MySQL 的 docker 镜像，所以发布的是 `mysql-age
 ```bash
 docker pull gcc:8.1.0
 docker tag gcc:8.1.0 docker.mobike.io/databases/gcc:8.1.0
-docker pull golang:1.9.2
-docker tag golang:1.9.2 docker.mobike.io/databases/golang:1.9.2
+docker pull golang:1.11.0
+docker tag golang:1.11.0 docker.mobike.io/databases/golang:1.11.0
 docker pull quay.io/coreos/etcd:v3.3.2
 docker tag quay.io/coreos/etcd:v3.3.2 docker.mobike.io/databases/etcd:v3.3.2
 ```

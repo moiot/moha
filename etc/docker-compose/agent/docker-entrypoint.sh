@@ -143,16 +143,6 @@ if [ "$1" = 'mysqld' -a -z "$wantHelp" ]; then
 		fi
 
 		rootCreate=
-		# default root to listen for connections from anywhere
-		file_env 'MYSQL_ROOT_HOST' '%'
-		if [ ! -z "$MYSQL_ROOT_HOST" -a "$MYSQL_ROOT_HOST" != 'localhost' ]; then
-			# no, we don't care if read finds a terminating character in this heredoc
-			# https://unix.stackexchange.com/questions/265149/why-is-set-o-errexit-breaking-this-read-heredoc-expression/265151#265151
-			read -r -d '' rootCreate <<-EOSQL || true
-				CREATE USER 'root'@'${MYSQL_ROOT_HOST}' IDENTIFIED BY '${MYSQL_ROOT_PASSWORD}' ;
-				GRANT ALL ON *.* TO 'root'@'${MYSQL_ROOT_HOST}' WITH GRANT OPTION ;
-			EOSQL
-		fi
 
 		"${mysql[@]}" <<-EOSQL
 			-- What's done in this file shouldn't be replicated
@@ -178,7 +168,7 @@ if [ "$1" = 'mysqld' -a -z "$wantHelp" ]; then
 		file_env 'MYSQL_USER'
 		file_env 'MYSQL_PASSWORD'
 		if [ "$MYSQL_USER" -a "$MYSQL_PASSWORD" ]; then
-			echo "GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP  ON *.* TO '$MYSQL_USER'@'%' IDENTIFIED BY '$MYSQL_PASSWORD' WITH GRANT OPTION;" | "${mysql[@]}"
+			echo "GRANT SELECT, INSERT, UPDATE, DELETE, RELOAD, SUPER, REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO '$MYSQL_USER'@'%' IDENTIFIED BY '$MYSQL_PASSWORD';" | "${mysql[@]}"
 			echo 'FLUSH PRIVILEGES ;' | "${mysql[@]}"
 		fi
 
@@ -186,7 +176,7 @@ if [ "$1" = 'mysqld' -a -z "$wantHelp" ]; then
         file_env 'MYSQL_REPLICATION_PASSWORD'
         if [ "$MYSQL_REPLICATION_USER" -a "$MYSQL_REPLICATION_PASSWORD" ]; then
           echo "ADD $MYSQL_REPLICATION_USER"
-          echo "GRANT REPLICATION SLAVE ,REPLICATION CLIENT  ON *.* TO '$MYSQL_REPLICATION_USER' IDENTIFIED BY '$MYSQL_REPLICATION_PASSWORD';" | "${mysql[@]}"
+          echo "GRANT REPLICATION SLAVE ,REPLICATION CLIENT  ON *.* TO '$MYSQL_REPLICATION_USER'@'%' IDENTIFIED BY '$MYSQL_REPLICATION_PASSWORD';" | "${mysql[@]}"
           echo 'FLUSH PRIVILEGES ;' | "${mysql[@]}"
         fi
 
@@ -195,11 +185,6 @@ if [ "$1" = 'mysqld' -a -z "$wantHelp" ]; then
 			process_init_file "$f" "${mysql[@]}"
 		done
 
-		if [ ! -z "$MYSQL_ONETIME_PASSWORD" ]; then
-			"${mysql[@]}" <<-EOSQL
-				ALTER USER 'root'@'%' PASSWORD EXPIRE;
-			EOSQL
-		fi
 		if ! kill -s TERM "$pid" || ! wait "$pid"; then
 			echo >&2 'MySQL init process failed.'
 			exit 1

@@ -26,8 +26,8 @@ type testCleanerSuite struct{}
 func (t *testCleanerSuite) TestStartClean(c *C) {
 
 	cfg := *mockCfg
-	cfg.DataDir = funcName()
-	cfg.EtcdRootPath = funcName()
+	cfg.DataDir = funcName(1)
+	cfg.EtcdRootPath = funcName(1)
 	s, err := NewServer(&cfg)
 	defer os.RemoveAll(cfg.DataDir)
 	c.Assert(err, IsNil)

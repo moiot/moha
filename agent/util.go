@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"git.mobike.io/database/mysql-agent/pkg/log"
+	"github.com/coreos/etcd/clientv3"
 )
 
 // checkFileExist checks whether a file is exists and is a file.
@@ -35,16 +36,6 @@ func checkFileExist(fpath string) (string, error) {
 		return "", errors.Errorf("path: %s, is a directory, not a file", fpath)
 	}
 	return fpath, nil
-}
-
-func parseGTID(gtidSet string) (map[string]string, error) {
-	gtids := strings.Split(gtidSet, ",")
-	r := make(map[string]string)
-	for _, g := range gtids {
-		uuid := strings.Split(g, ":")[0]
-		r[uuid] = g
-	}
-	return r, nil
 }
 
 func parseHost(address string) (h, p string, err error) {
@@ -105,4 +96,22 @@ func DoWithRetry(f func() error, funcName string, retryTimes int, retryInterval 
 		time.Sleep(retryInterval)
 	}
 	return err
+}
+
+// Concatenate creates a new array and concatenates all passed-in arrays together
+func Concatenate(arrays ...[]clientv3.Op) []clientv3.Op {
+	if len(arrays) == 0 {
+		return []clientv3.Op{}
+	}
+	first := arrays[0]
+	r := make([]clientv3.Op, len(first))
+	copy(r, first)
+	for i, element := range arrays {
+		if i == 0 {
+			continue
+		}
+		r = append(r, element...)
+	}
+	return r
+
 }

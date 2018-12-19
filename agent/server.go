@@ -16,12 +16,15 @@ package agent
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
 	"os"
 	"runtime/debug"
+	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -42,6 +45,10 @@ var (
 	// if CURRENT LeaderFollowerRegistry is the leader
 	leaderValue string
 )
+
+func init() {
+	latestPos.SecondsBehindMaster = 1 << 30
+}
 
 // Server maintains agent's status at runtime.
 type Server struct {
@@ -67,6 +74,15 @@ type Server struct {
 	httpSrv      *http.Server
 
 	shutdownCh chan interface{}
+
+	//TODO term increment check
+	term     uint64
+	lastUUID string
+	lastGTID string
+
+	// uuid is the uuid of current MySQL
+	uuid       string
+	uuidRWLock sync.RWMutex
 
 	db *sql.DB
 
@@ -99,7 +115,7 @@ func checkConfig(cfg *Config) error {
 	}
 
 	if cfg.EtcdUsername == "" {
-		return errors.NotValidf("EtcdUsername is empty")
+		return errors.NotValidf("Etcd Username is empty")
 	}
 	return nil
 }
@@ -168,6 +184,7 @@ func (s *Server) Start() error {
 	} else {
 		log.Info("mysql is alive, according to port alive detection")
 	}
+	log.Info("mysql fork done, try to connect")
 
 	// try to connect MySQL
 	var db *sql.DB
@@ -213,20 +230,11 @@ func (s *Server) Start() error {
 		log.Errorf("has error in SetReadOnly. self spin. err: %+v ", err)
 		time.Sleep(100 * time.Millisecond)
 	}
-	// register this node.
-	if err := s.node.Register(s.ctx); err != nil {
-		return errors.Annotate(err, "fail to register node to etcd")
-	}
+	// load the executed gtid
+	s.loadUUID()
 
 	// start heartbeat loop.
-	errc := s.node.Heartbeat(s.ctx)
-	go func() {
-		for err := range errc {
-			log.Error("heartbeat has error ", err)
-		}
-		log.Info("heartbeat is closed")
-	}()
-
+	go s.startHeartbeatLoop()
 	// start monitor binlog goroutine.
 	go s.startBinlogMonitorLoop()
 	go s.leaderLoop()
@@ -323,6 +331,30 @@ func (s *Server) resetWriteFDLoop() {
 	s.fdStopCh = make(chan interface{})
 }
 
+func (s *Server) startHeartbeatLoop() {
+	// TODO wait for starting register and heartbeat
+	// invoked by `became master` or `show slave status` has low latency
+	for !(s.amILeader() ||
+		latestPos.SlaveIORunning && latestPos.SlaveSQLRunning && latestPos.SecondsBehindMaster < 60) {
+		log.Infof("s.amILeader(): %t, SecondsBehindMaster: %d", s.amILeader(), latestPos.SecondsBehindMaster)
+		time.Sleep(1 * time.Second)
+	}
+	log.Infof("s.amILeader(): %t, SecondsBehindMaster: %d. so begin register",
+		s.amILeader(), latestPos.SecondsBehindMaster)
+	// register this node.
+	err := s.node.Register(s.ctx)
+	for err != nil {
+		log.Info("has error when register. ", err)
+		time.Sleep(1 * time.Second)
+		err = s.node.Register(s.ctx)
+	}
+	errc := s.node.Heartbeat(s.ctx)
+	for err := range errc {
+		log.Error("heartbeat has error ", err)
+	}
+	log.Info("heartbeat is closed")
+}
+
 func (s *Server) startBinlogMonitorLoop() {
 	defer func() {
 		if err := recover(); err != nil {
@@ -346,61 +378,78 @@ func (s *Server) startBinlogMonitorLoop() {
 }
 
 func (s *Server) updateBinlogPos() error {
-	pos, gtidSet, err := mysql.GetMasterStatus(s.db)
-	if err != nil {
-		// error in getting MySQL binlog position
-		// TODO change alive status or retry
-		return err
-	}
-	if latestPos.UUID == "" {
-		uuid, err := mysql.GetServerUUID(s.db)
+
+	var gtidStr, masterUUID string
+	if s.amILeader() {
+		pos, gtidSet, err := mysql.GetMasterStatus(s.db)
 		if err != nil {
 			// error in getting MySQL binlog position
 			// TODO change alive status or retry
 			return err
 		}
-		latestPos.UUID = uuid
-	}
-	latestPos.File = pos.Name
-	latestPos.Pos = fmt.Sprint(pos.Pos)
-	latestPos.GTID = gtidSet.String()
+		latestPos.File = pos.Name
+		latestPos.Pos = fmt.Sprint(pos.Pos)
+		latestPos.GTID = gtidSet.String()
 
-	// below are monitor logic
-	var gtidStr, masterUUID string
-	if s.amILeader() {
+		latestPos.SecondsBehindMaster = 0
+		latestPos.SlaveIORunning = false
+		latestPos.SlaveSQLRunning = false
+
+		// below are monitor logic
 		agentSlaveStatus.With(prometheus.Labels{"cluster_name": s.cfg.ClusterName, "type": "sql_thread"}).Set(0)
 		agentSlaveStatus.With(prometheus.Labels{"cluster_name": s.cfg.ClusterName, "type": "io_thread"}).Set(0)
 		gtidStr, masterUUID = latestPos.GTID, latestPos.UUID
-
 	} else {
 		rSet, err := mysql.GetSlaveStatus(s.db)
 		if err != nil {
+			// error in getting MySQL binlog position
+			// TODO change alive status or retry
 			return errors.Trace(err)
 		}
-		if rSet["Slave_SQL_Running"] == "Yes" {
-			agentSlaveStatus.With(prometheus.Labels{
-				"cluster_name": s.cfg.ClusterName,
-				"type":         "sql_thread"}).Set(1)
+		latestPos.File = rSet["Relay_Master_Log_File"]
+		latestPos.Pos = rSet["Exec_Master_Log_Pos"]
+		latestPos.GTID = rSet["Executed_Gtid_Set"]
+
+		if rSet["Seconds_Behind_Master"] == "" {
+			log.Errorf("Seconds_Behind_Master is empty, show slave status result is %+v", rSet)
 		} else {
+			sbm, err := strconv.Atoi(rSet["Seconds_Behind_Master"])
+			if err != nil {
+				log.Warnf("has error in atoi Seconds_Behind_Master: %s. still use previous value: %d. error is %+v",
+					rSet["Seconds_Behind_Master"], latestPos.SecondsBehindMaster, err)
+			} else {
+				latestPos.SecondsBehindMaster = sbm
+			}
+		}
+
+		if rSet["Slave_SQL_Running"] == "Yes" {
+			latestPos.SlaveSQLRunning = true
+			agentSlaveStatus.With(prometheus.Labels{"cluster_name": s.cfg.ClusterName, "type": "sql_thread"}).Set(1)
+		} else {
+			latestPos.SlaveSQLRunning = false
 			agentSlaveStatus.With(prometheus.Labels{"cluster_name": s.cfg.ClusterName, "type": "sql_thread"}).Set(-1)
 		}
 		if rSet["Slave_IO_Running"] == "Yes" {
+			latestPos.SlaveIORunning = true
 			agentSlaveStatus.With(prometheus.Labels{"cluster_name": s.cfg.ClusterName, "type": "io_thread"}).Set(1)
 		} else {
+			latestPos.SlaveIORunning = false
 			agentSlaveStatus.With(prometheus.Labels{"cluster_name": s.cfg.ClusterName, "type": "io_thread"}).Set(-1)
 		}
 		gtidStr, masterUUID = rSet["Executed_Gtid_Set"], rSet["Master_UUID"]
 	}
 
-	endTxnID, err := mysql.GetTxnIDFromGTIDStr(gtidStr, masterUUID)
-	if err != nil {
-		log.Warnf("error when GetTxnIDFromGTIDStr gtidStr: %s, gtid: %s, error is %v", gtidStr, masterUUID, err)
-		return nil
+	if masterUUID != "" {
+		endTxnID, err := mysql.GetTxnIDFromGTIDStr(gtidStr, masterUUID)
+		if err != nil {
+			log.Warnf("error when GetTxnIDFromGTIDStr gtidStr: %s, gtid: %s, error is %v", gtidStr, masterUUID, err)
+			return nil
+		}
+		// assume the gtidset is continuous, only pick the last one
+		agentSlaveStatus.
+			With(prometheus.Labels{"cluster_name": s.cfg.ClusterName, "type": "executed_gtid"}).
+			Set(float64(endTxnID))
 	}
-	// assume the gtidset is continuous, only pick the last one
-	agentSlaveStatus.
-		With(prometheus.Labels{"cluster_name": s.cfg.ClusterName, "type": "executed_gtid"}).
-		Set(float64(endTxnID))
 
 	return nil
 }
@@ -418,7 +467,7 @@ func (s *Server) leaderLoop() {
 	for {
 		//TODO add loop invariant assertion: readonly = 1
 
-		leader, kv, err := s.getLeader()
+		leader, myTerm, err := s.getLeaderAndMyTerm()
 
 		if err != nil {
 			isClosed := atomic.LoadInt32(&s.isClosed)
@@ -427,19 +476,32 @@ func (s *Server) leaderLoop() {
 				return
 			}
 			log.Errorf("get leader err %v", err)
-			// TODO wait or exit?
+			if errors.IsNotValid(err) {
+				log.Errorf("error is failed to validate, mysql-agent is stopped: %+v", err)
+				s.Close()
+			}
+			// TODO for other errors, wait or exit?
 			time.Sleep(200 * time.Millisecond)
 			continue
 		}
+		s.term = myTerm
 
 		// if the leader already exists, no need to campaign
-		if leader != "" {
-			if s.isSameLeader(leader) {
+		if leader.name != "" {
+			if s.isSameLeader(leader.name) {
 				// if the leader is the current agent, then we need to keep the lease alive again
 				// txn().if(leader is current Agent).then(putWithLease).else()
 				// if txn success, set mysql readwrite
 				log.Info("current node is still the leader, try to resume leader keepalive")
-				startTime := time.Now()
+				s.term = leader.meta.term
+				s.lastGTID = leader.meta.lastGTID
+				s.lastUUID = leader.meta.lastUUID
+				if leader.spm == s.node.ID() {
+					// resume single point master mode
+					log.Info("leader's spm is current node ID, so resume spm mode")
+					s.becomeSinglePointMaster(true)
+					continue
+				}
 				campaignSuccess, lr, err := s.resumeLeader()
 				if err != nil {
 					log.Errorf("resume leader err %v", err)
@@ -448,33 +510,45 @@ func (s *Server) leaderLoop() {
 					continue
 				}
 				if !campaignSuccess {
+					log.Info("fail to resume leader, someone else may be the leader.")
 					continue
 				}
+				// assert: s.leaderStopCh is nil or closed
+				s.leaderStopCh = make(chan interface{})
+				keepLeaderAliveBarrier := make(chan interface{})
+				go func() {
+					s.keepLeaderAliveLoop(int64(lr.ID))
+					keepLeaderAliveBarrier <- "finish"
+				}()
+
+				s.setIsLeaderToTrue()
 				err = s.serviceManager.SetReadWrite()
 				if err != nil {
 					log.Error("fail to set read write, err: ", err)
 					s.serviceManager.SetReadOnly()
+					close(s.leaderStopCh)
 					continue
 				}
-				if time.Now().Sub(startTime) > time.Duration(s.cfg.LeaderLeaseTTL)*time.Second {
-					log.Error("timeout between resume leader success and renew Leader lease, lease may expire")
-					s.serviceManager.SetReadOnly()
-					continue
-				}
-				s.setIsLeaderToTrue()
-				// assert: s.leaderStopCh is nil or closed
-				s.leaderStopCh = make(chan interface{})
-				s.keepLeaderAliveLoop(int64(lr.ID))
+				<-keepLeaderAliveBarrier
+
 				continue
 			} else {
 				// now the leader exists and is not current node, therefore just watch
-				log.Infof("leader is %s, watch it", leader)
-				err = s.doChangeMaster()
+				err = s.preWatch(leader)
+				if err != nil {
+					log.Error("has error in preWatch, so close.", err)
+					s.Close()
+					return
+				}
+				log.Info("current server is no later than master, so watch master")
+				log.Infof("leader is %v, watch it", leader)
+				err = s.doChangeMaster(leader)
 				if err != nil {
 					log.Error("error while slave redirects master, goto leader loop start point ", err)
+					time.Sleep(100 * time.Millisecond)
 					continue
 				}
-				err = s.watchLeader(kv.ModRevision)
+				err = s.watchLeader(leader.kv.ModRevision)
 				if err != nil {
 					log.Info("try to watch leader with the latest revision")
 					err = s.watchLeader(0)
@@ -492,7 +566,23 @@ func (s *Server) leaderLoop() {
 			time.Sleep(1 * time.Second)
 			continue
 		}
-		startTime := time.Now()
+
+		// if leader.Term == 0, then it indicates cluster is new, so no need to preCampaign
+		// TODO need to compare leader.Term and s.term or not ?
+		// TODO !!! move leader.term check into preCampaign, or the init mode of cluster might has single point mode
+		var isSinglePoint bool
+		log.Info("current node isPreviousMaster? ", s.isPreviousMaster(leader))
+		if leader.meta.term != 0 {
+			log.Info("begin preCampaign")
+			isSinglePoint = s.preCampaign(s.isPreviousMaster(leader))
+			log.Info("preCampaign done, current node is single point? ", isSinglePoint)
+		}
+		// add isSinglePoint Logic
+		if isSinglePoint {
+			s.becomeSinglePointMaster(false)
+			continue
+		}
+
 		campaignSuccess, lr, err := s.campaignLeader()
 		if err != nil {
 			// if leader campaign has error occurred,
@@ -510,23 +600,27 @@ func (s *Server) leaderLoop() {
 			log.Info("campaign leader fail, someone else may be the leader")
 			continue
 		}
+		s.updateLeaseExpireTS()
+		s.term++
+		keepLeaderAliveBarrier := make(chan interface{})
+		// assert: s.leaderStopCh is nil or closed
+		s.leaderStopCh = make(chan interface{})
+
+		go func() {
+			agentMasterSwitch.With(prometheus.Labels{"cluster_name": s.cfg.ClusterName}).Inc()
+			s.keepLeaderAliveLoop(int64(lr.ID))
+			keepLeaderAliveBarrier <- "finish"
+		}()
 		// now current node is the leader
 		err = s.promoteToMaster()
 		if err != nil {
 			log.Error("fail to set read write, err: ", err)
 			s.setServiceReadonlyOrShutdown()
+			close(s.leaderStopCh)
 			time.Sleep(100 * time.Millisecond)
 			continue
 		}
-		if time.Now().Sub(startTime) > time.Duration(s.cfg.LeaderLeaseTTL)*time.Second {
-			log.Error("timeout between campaign leader success and renew Leader lease, lease may expire")
-			s.serviceManager.SetReadOnly()
-			continue
-		}
-		// assert: s.leaderStopCh is nil or closed
-		s.leaderStopCh = make(chan interface{})
-		agentMasterSwitch.With(prometheus.Labels{"cluster_name": s.cfg.ClusterName}).Inc()
-		s.keepLeaderAliveLoop(int64(lr.ID))
+		<-keepLeaderAliveBarrier
 	}
 
 }
@@ -651,6 +745,24 @@ func (s *Server) amILeader() bool {
 	return atomic.LoadInt32(&s.isLeader) == 1
 }
 
+func (s *Server) loadUUID() error {
+	s.uuidRWLock.Lock()
+	defer s.uuidRWLock.Unlock()
+	uuid, err := mysql.GetServerUUID(s.db)
+	if err != nil {
+		return err
+	}
+	s.uuid = uuid
+	latestPos.UUID = uuid
+	return nil
+}
+
+func (s *Server) getUUID() string {
+	s.uuidRWLock.RLock()
+	defer s.uuidRWLock.RUnlock()
+	return s.uuid
+}
+
 // isOnlyFollow returns whether current server is the node
 // that only follows master, not participating in campaigning leader.
 // if variable in memory, onlyFollow, is true, then server is onlyFollow,
@@ -662,17 +774,21 @@ func (s *Server) isOnlyFollow() bool {
 	return s.cfg.OnlyFollow
 }
 
+func (s *Server) isPreviousMaster(leader *Leader) bool {
+	log.Infof("s.term: %d, s.node.ID(): %s, s.getUUID(): %s, leader: %+v ",
+		s.term, s.node.ID(), s.getUUID(), leader)
+	return (s.term == leader.meta.term && s.node.ID() == leader.meta.name) ||
+		(s.term == leader.meta.term-1 && s.getUUID() == leader.meta.lastUUID)
+}
+
 // doChangeMaster does different things in the following different conditions:
 // if a node is the former leader and current leader, do nothing
 // if a node is the former leader but not current leader, downgrade
 // if a node is not the former leader but current leader, promote to master
 // if a node is not the former leader nor current leader, redirect master to new leader.
-func (s *Server) doChangeMaster() error {
-	// get new master info from etcd
-	newLeaderID, _, err := s.getLeader()
-	if err != nil {
-		return errors.Trace(err)
-	}
+func (s *Server) doChangeMaster(leader *Leader) error {
+	newLeaderID := leader.name
+
 	log.Infof("the new leader id is %s", newLeaderID)
 	log.Info("the new leader is current node? ", s.isSameLeader(newLeaderID))
 	log.Info("current node is former leader? ", s.amILeader())
@@ -743,7 +859,8 @@ func (s *Server) uploadPromotionBinlog() error {
 	currentPos.Pos = rSet["Exec_Master_Log_Pos"]
 	currentPos.GTID = rSet["Executed_Gtid_Set"]
 	currentPos.UUID = latestPos.UUID
-	key := join("switch", fmt.Sprint(time.Now().Unix()), s.node.ID())
+	// key := join("switch", fmt.Sprint(time.Now().Unix()), s.node.ID())
+	key := join("switch", fmt.Sprint(s.term-1), s.node.ID())
 	latestPosJSONBytes, err := json.Marshal(currentPos)
 	if err != nil {
 		return errors.Trace(err)
@@ -758,10 +875,126 @@ func (s *Server) becomeSlave(masterHost, masterPort string) error {
 	retry := 0
 	for err != nil && retry < 10 {
 		log.Error("redirect master has error, self-spin ", err)
-		time.Sleep(100 * time.Millisecond)
+		if err != driver.ErrBadConn {
+			time.Sleep(100 * time.Millisecond)
+		}
 		err = s.serviceManager.RedirectMaster(masterHost, masterPort)
 		retry++
 	}
 
 	return err
+}
+
+// preCampaign prepares campaign information and does the comparison
+// 1. upload (term + 1), last UUID and last GTID as election log
+// 2. get all election logs from etcd
+// 3. compare all the logs with itself, determine whether it is the latest? whether it is the single point?
+// 4. returns whether it is the single point
+func (s *Server) preCampaign(isFormerMaster bool) (isSinglePoint bool) {
+	// wait for consuming relay log
+	log.Infof("enter preCampaign as the former master? %v", isFormerMaster)
+	time.Sleep(s.cfg.CampaignWaitTime)
+	if isFormerMaster {
+		s.uploadLogForElectionAsFormerMaster()
+	} else {
+		s.uploadLogForElectionAsSlave()
+	}
+	log.Infof("logForElection has been uploaded")
+	// wait for other node uploading
+	time.Sleep(s.cfg.CampaignWaitTime)
+	logs, err := s.getAllLogsForElection()
+	for err != nil {
+		log.Error("error when getAllLogsForElection ", err)
+		time.Sleep(100 * time.Millisecond)
+		logs, err = s.getAllLogsForElection()
+	}
+	log.Infof("get all logsForElection from etcd")
+	isLatest, isSinglePoint := s.isLatestLog(logs)
+	log.Infof("current node is the latest? %v. all logs are %+v", isLatest, logs)
+
+	if !isLatest {
+		time.Sleep(s.cfg.CampaignWaitTime)
+	}
+	if isFormerMaster {
+		log.Info("current node is the former master, wait for some more time")
+		time.Sleep(500 * time.Millisecond)
+	}
+	return isSinglePoint
+}
+
+// preWatch validates the gtid.
+// current agent gtid is compared with the gtid uploaded by new master.
+// if current agent has later gtid, then preWatch returns error
+// else agent's term is updated and persisted
+func (s *Server) preWatch(leader *Leader) (err error) {
+	defer func() {
+		if err == nil {
+			s.persistMyTerm()
+		}
+	}()
+	if s.term == 0 {
+		// a fast return: if current node is the new joiner, it is assumed that the data is no later than the master.
+		log.Info("server's term is 0 so server is just started, assume no later log")
+		s.term = leader.meta.term
+		return nil
+	}
+	if s.term < leader.meta.term-1 {
+		// a fast return: if current node is behind master for more than 2 term,
+		// it is "incomparable" with the master node, so fail fast
+		log.Errorf("current server %s is behind current term for more than one term", s.node.ID())
+		return errors.NotValidf("current server %s is behind current term for more than one term", s.node.ID())
+	}
+	if s.term == leader.meta.term {
+		// a fast return: if current node has the same term with the master, it means that all validations have been passed
+		// and this may by happen when current agent is restarting
+		log.Warnf("current node has term %d while leader has term %d. so current node could be slave", s.term, leader.meta.term)
+		return nil
+	}
+
+	log.Info("current node isPreviousMaster? ", s.isPreviousMaster(leader))
+	if s.lastUUID == "" {
+		// if current node is the previous master, s.lastUUID is itself
+		if s.isPreviousMaster(leader) {
+			err = s.loadMasterLogFromMySQL()
+		} else {
+			// maybe it is a restart agent, load from mysql
+			err = s.loadSlaveLogFromMySQL()
+		}
+		if err != nil {
+			log.Errorf("has error when loadLogFromMySQL: %+v ", err)
+			return errors.Trace(err)
+		}
+	}
+	log.Infof("s.lastUUID is %s and leader is %+v", s.lastUUID, leader)
+
+	if s.term == leader.meta.term-1 {
+		s.term = leader.meta.term
+	} else {
+		// this situation is s.term is greater than leader.meta.term, which should not happen, so log it
+		log.Errorf("current node has term %d while leader has term %d", s.term, leader.meta.term)
+	}
+	if s.lastUUID != leader.meta.lastUUID {
+		log.Errorf("current server %s has different leader UUID: %s vs %s ",
+			s.node.ID(), s.lastUUID, leader.meta.lastUUID)
+		return errors.NotValidf("current server %s has different leader UUID: %s vs %s ",
+			s.node.ID(), s.lastUUID, leader.meta.lastUUID)
+	}
+	myTxnID, err := mysql.GetTxnIDFromGTIDStr(s.lastGTID, s.lastUUID)
+	if err != nil {
+		log.Errorf("error when extract myTxnID")
+		return errors.Trace(err)
+	}
+	latestTxnID, err := mysql.GetTxnIDFromGTIDStr(leader.meta.lastGTID, leader.meta.lastUUID)
+	if err != nil {
+		log.Errorf("error when extract leader's latestTxnID")
+		return errors.Trace(err)
+	}
+	if latestTxnID < myTxnID {
+		log.Errorf("current server %s has later GTID: %s vs %s . leader: %+v ",
+			s.node.ID(), s.lastGTID, leader.meta.lastGTID, leader)
+		return errors.NotValidf("current server %s has later GTID: %s vs %s . leader: %+v ",
+			s.node.ID(), s.lastGTID, leader.meta.lastGTID, leader)
+	}
+	// TODO add logic: if current gtid is ahead master gtid, then deregister current node
+	return nil
 }

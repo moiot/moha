@@ -16,6 +16,8 @@ GOCHECKER := $(GOFILTER) | awk '{ print } END { if (NR > 0) { exit 1 } }'
 CPPLINT := cpplint --quiet --filter=-readability/casting,-build/include_subdir
 CFILES := supervise/*.c
 
+DOCKER-COMPOSE := docker-compose -p mysqlagent -f etc/docker-compose/docker-compose.yaml
+
 PACKAGES := $$(go list ./...| grep -vE 'vendor|cmd')
 FILES    := $$(find . -name '*.go' -type f | grep -vE 'vendor')
 
@@ -38,27 +40,39 @@ agent:
 docker-agent:
 	mkdir -p bin/
 	docker run --rm -v `pwd`:/usr/src/myapp -w /usr/src/myapp docker.mobike.io/databases/gcc:8.1.0 gcc -o bin/supervise supervise/*.c
-	docker run --rm -v `pwd`:/go/src/git.mobike.io/database/mysql-agent -w /go/src/git.mobike.io/database/mysql-agent docker.mobike.io/databases/golang:1.9.2 make agent
+	docker run --rm -v `pwd`:/go/src/git.mobike.io/database/mysql-agent -w /go/src/git.mobike.io/database/mysql-agent docker.mobike.io/databases/golang:1.11.0 make agent
 	cp bin/* etc/docker-compose/agent/
 
 checker:
 	$(GOBUILD) -ldflags '$(LDFLAGS)' -o bin/mysql-agent-checker cmd/mysql-agent-checker/main.go
 
-checker-test:
-	@ bin/mysql-agent-checker -config=checker/cfg.toml
+docker-checker:
+	docker run --rm -e GOOS=`uname | tr 'A-Z' 'a-z'` -v `pwd`:/go/src/git.mobike.io/database/mysql-agent -w /go/src/git.mobike.io/database/mysql-agent docker.mobike.io/databases/golang:1.11.0 bash -c "make checker"
 
-docker-checker-test:
-	docker run --rm -e GOOS=`uname | tr 'A-Z' 'a-z'` -v `pwd`:/go/src/git.mobike.io/database/mysql-agent -w /go/src/git.mobike.io/database/mysql-agent docker.mobike.io/databases/golang:1.9.2 bash -c "make checker"
-	make checker-test
+checker-test:
+	@ docker exec mysql-node-1 mysql -h 127.0.0.1 -P 3306 -u mysql_user -pmysql_master_user_pwd -e 'select 1' >/dev/null || true
+	@ until docker exec mysql-node-1 mysql -h 127.0.0.1 -P 3306 -u mysql_user -pmysql_master_user_pwd -e 'select 1' >/dev/null 2>&1; do sleep 1; echo "checker-test: Waiting for DB 3307 to come up..."; done;
+	@ until docker exec mysql-node-2 mysql -h 127.0.0.1 -P 3306 -u mysql_user -pmysql_master_user_pwd -e 'select 1' >/dev/null 2>&1; do sleep 1; echo "checker-test: Waiting for DB 3308 to come up..."; done;
+	@ until docker exec mysql-node-3 mysql -h 127.0.0.1 -P 3306 -u mysql_user -pmysql_master_user_pwd -e 'select 1' >/dev/null 2>&1; do sleep 1; echo "checker-test: Waiting for DB 3309 to come up..."; done;
+	@ echo "grant privileges for checker user"
+	docker exec mysql-node-1 mysql -S /tmp/mysql.sock  -P 3306 -u root -pmaster_root_pwd -e "grant all privileges ON *.* TO 'mysql_user'@'%'" || true
+	docker exec mysql-node-2 mysql -S /tmp/mysql.sock  -P 3306 -u root -pmaster_root_pwd -e "grant all privileges ON *.* TO 'mysql_user'@'%'" || true
+	docker exec mysql-node-3 mysql -S /tmp/mysql.sock  -P 3306 -u root -pmaster_root_pwd -e "grant all privileges ON *.* TO 'mysql_user'@'%'" || true
+	@ echo "run with chaos " $(CHAOS)
+	@ bin/mysql-agent-checker -config=checker/cfg.toml -chaos=$(CHAOS)
 
 test:
 	@echo "test"
 	$(GOTEST) --race --cover $(PACKAGES)
 
 lint:
-	@echo "golint check"
+	@echo "gofmt check"
 	@gofmt -s -l . 2>&1 | $(GOCHECKER)
-	@golint ./... 2>&1 | $(GOCHECKER)
+	@echo "golint check"
+	@golint ./agent/... 2>&1 | $(GOCHECKER)
+	@golint ./pkg/... 2>&1 | $(GOCHECKER)
+	@golint ./checker/... 2>&1 | $(GOCHECKER)
+	@golint ./cmd/... 2>&1 | $(GOCHECKER)
 	@echo "cpplint check"
 	@$(CPPLINT) $(CFILES)
 	@echo "done!"
@@ -94,7 +108,7 @@ print-version:
 	@ echo $(VERSION)
 
 release:
-	@ echo "please run 'python release.py <version>' to release"
+	@ python release.py $(RELEASE-TAG) || echo "release should be with variable RELEASE-TAG"
 	@ echo "should you not sure about what version to release, you could run 'make print-version' to find current version"
 
 tag:
@@ -108,29 +122,41 @@ docker-image:
 
 env-up:
 	@ echo "start etcd cluster"
-	@ docker-compose -p mysqlagent -f etc/docker-compose/docker-compose.yaml up --force-recreate -d etcd0 etcd1 etcd2
+	@ $(DOCKER-COMPOSE) up --force-recreate -d etcd0 etcd1 etcd2
 	@ echo "enable etcd auth"
 	docker exec etcd-node-1 sh -c "echo 'root' | etcdctl --interactive=false --endpoints=http://etcd0:2379 user add root" || true
 	docker exec etcd-node-1 etcdctl --user=root:root --endpoints=http://etcd0:2379 auth enable
 
 env-down:
 	@ echo "stop etcd cluster"
-	@ docker-compose -p mysqlagent -f etc/docker-compose/docker-compose.yaml down etcd0 etcd1 etcd2 --remove-orphans
+	@ $(DOCKER-COMPOSE) down etcd0 etcd1 etcd2 --remove-orphans
 
 start-agents:
-	docker-compose -p mysqlagent -f etc/docker-compose/docker-compose.yaml up --build -d mysql-test-1 mysql-test-2 mysql-test-3
+	$(DOCKER-COMPOSE) up --build -d mysql-test-1 mysql-test-2 mysql-test-3
 
 stop-agents:
-	docker-compose -p mysqlagent -f etc/docker-compose/docker-compose.yaml rm -svf mysql-test-1 mysql-test-2 mysql-test-3 || true
+	$(DOCKER-COMPOSE) rm -svf mysql-test-1 mysql-test-2 mysql-test-3 || true
 
 start-all:
-	docker-compose -p mysqlagent -f etc/docker-compose/docker-compose.yaml up --build -d --force-recreate
+	$(DOCKER-COMPOSE) up --build -d --force-recreate
+
+export CHAOS
+chaos-test:
+	@ make clean-data
+	rm -rf logs/mysql-agent-*.log || true
+	@ make env-up
+	@ make start-agents
+	@ make checker-test
 
 integration-test:
-	@ make clean-data
-	@ make env-up
-	@ make reload-agents
-	@ make docker-checker-test
+	@ make docker-agent
+	@ make docker-checker
+	make chaos-test CHAOS=change_master
+	make chaos-test CHAOS=stop_master_agent
+	make chaos-test CHAOS=stop_slave_agent
+	make chaos-test CHAOS=partition_one_az
+	make chaos-test CHAOS=partition_master_az
+	make chaos-test CHAOS=spm
 	@ make clean-data
 
 reload-agents:
@@ -139,16 +165,20 @@ reload-agents:
 	@ make start-agents
 
 monitor:
-	@ until mysql -h 127.0.0.1 -P 3307 -u root -pmaster_root_pwd -e 'select 1' >/dev/null 2>&1; do sleep 1; echo "Waiting for DB 3307 to come up..."; done;
-	@ docker exec mysql-node-2 pmm-admin config --server pmm-server
-	@ docker exec mysql-node-2 pmm-admin add mysql --user root --password master_root_pwd node-test_mysql_2
-	@ until mysql -h 127.0.0.1 -P 3308 -u root -pmaster_root_pwd -e 'select 1' >/dev/null 2>&1; do sleep 1; echo "Waiting for DB 3308 to come up..."; done;
+	@ until mysql -h 127.0.0.1 -P 3307 -u mysql_user -pmysql_master_user_pwd -e 'select 1' >/dev/null 2>&1; do sleep 1; echo "Waiting for DB 3307 to come up..."; done;
 	@ docker exec mysql-node-1 pmm-admin config --server pmm-server
-	@ docker exec mysql-node-1 pmm-admin add mysql --user root --password master_root_pwd node-test_mysql_1
-	@ until mysql -h 127.0.0.1 -P 3309 -u root -pmaster_root_pwd -e 'select 1' >/dev/null 2>&1; do sleep 1; echo "Waiting for DB 3309 to come up..."; done;
+	@ docker exec mysql-node-1 pmm-admin add mysql --user mysql_user --password mysql_master_user_pwd node-test_mysql_1
+	@ until mysql -h 127.0.0.1 -P 3308 -u mysql_user -pmysql_master_user_pwd -e 'select 1' >/dev/null 2>&1; do sleep 1; echo "Waiting for DB 3308 to come up..."; done;
+	@ docker exec mysql-node-2 pmm-admin config --server pmm-server
+	@ docker exec mysql-node-2 pmm-admin add mysql --user mysql_user --password mysql_master_user_pwd node-test_mysql_2
+	@ until mysql -h 127.0.0.1 -P 3309 -u mysql_user -pmysql_master_user_pwd -e 'select 1' >/dev/null 2>&1; do sleep 1; echo "Waiting for DB 3309 to come up..."; done;
 	@ docker exec mysql-node-3 pmm-admin config --server pmm-server
-	@ docker exec mysql-node-3 pmm-admin add mysql --user root --password master_root_pwd node-test_mysql_3
+	@ docker exec mysql-node-3 pmm-admin add mysql --user mysql_user --password mysql_master_user_pwd node-test_mysql_3
+	@ echo "add etcd in prometheus config"
+	@ docker cp ./etc/docker-compose/prometheus-etcd.yml pmm-server:/etc/
+	@ docker exec -w /etc pmm-server sed -i '/scrape_configs:/r prometheus-etcd.yml' prometheus.yml
 	@ echo "add mysql-agent in prometheus config"
+	@ docker cp ./etc/docker-compose/prometheus-mysql-agent.yml pmm-server:/etc/
 	@ docker exec -w /etc pmm-server sed -i '/scrape_configs:/r prometheus-mysql-agent.yml' prometheus.yml
 	@ docker restart pmm-server
 	@ echo "register mysql-agent"
@@ -159,6 +189,7 @@ monitor:
 	@ echo "import mysql-agent monitor dashboard"
 	@ python etc/monitor/import-dashboard.py -f  etc/monitor/go-processes.json
 	@ python etc/monitor/import-dashboard.py -f  etc/monitor/mysql-agent.json
+	@ python etc/monitor/import-dashboard.py -f  etc/monitor/etcd_rev3.json
 
 demo:
 	@ make clean-data
@@ -167,26 +198,15 @@ demo:
 	@ make monitor
 
 clean-data:
-	@ docker stop mysql-node-1 || true
-	@ docker rm mysql-node-1 || true
+	@ $(DOCKER-COMPOSE) rm -vsf || true
 	@ docker volume rm mysqlagent_mysql-node-1-data || true
-	@ docker stop mysql-node-2 || true
-	@ docker rm mysql-node-2 || true
 	@ docker volume rm mysqlagent_mysql-node-2-data || true
-	@ docker stop mysql-node-3 || true
-	@ docker rm mysql-node-3 || true
 	@ docker volume rm mysqlagent_mysql-node-3-data || true
-	@ docker stop etcd-node-0 || true
-	@ docker stop etcd-node-1 || true
-	@ docker stop etcd-node-2 || true
-	@ docker rm etcd-node-0 || true
-	@ docker rm etcd-node-1 || true
-	@ docker rm etcd-node-2 || true
 	@ docker volume rm mysqlagent_etcd0 || true
 	@ docker volume rm mysqlagent_etcd1 || true
 	@ docker volume rm mysqlagent_etcd2 || true
-	@ docker stop pmm-server || true
-	@ docker rm pmm-server || true
+	@ docker volume rm mysqlagent_etcd3 || true
+	@ docker volume rm mysqlagent_etcd4 || true
 	@ docker volume rm mysqlagent_pmm-data-prometheus || true
 	@ docker volume rm mysqlagent_pmm-data-mysql || true
 	@ docker volume rm mysqlagent_pmm-data-grafana || true

@@ -42,7 +42,7 @@ def export_dashboard(api_url, api_key, dashboard_name):
 def fill_dashboard_with_dest_config(dashboard, dest):
     dashboard['id'] = None
     
-    for panel in dashboard['panels']:
+    for panel in dashboard.get('panels', []):
         panel['datasource'] = dest['datasource']
 
     if 'templating' in dashboard:
@@ -51,6 +51,11 @@ def fill_dashboard_with_dest_config(dashboard, dest):
                 templating['current'] = {}
                 templating['options'] = []
             templating['datasource'] = dest['datasource']
+
+    if 'rows' in dashboard:
+        for row in dashboard["rows"]:
+            for panel in row.get('panels', []):
+                panel['datasource'] = dest['datasource']
 
     return dashboard
 

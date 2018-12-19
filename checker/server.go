@@ -16,24 +16,33 @@ package checker
 import (
 	"context"
 	"database/sql"
-	"fmt"
-	"net/http"
-	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"git.mobike.io/database/mysql-agent/pkg/etcd"
+	"git.mobike.io/database/mysql-agent/pkg/log"
 	"git.mobike.io/database/mysql-agent/pkg/mysql"
-	"github.com/coreos/etcd/mvcc/mvccpb"
 	"github.com/juju/errors"
-	log "github.com/sirupsen/logrus"
 )
 
 var (
 	leaderPath = "master"
+
+	// azSet is the set of all AZs, for example {az1, az2, az3}
+	azSet map[string]bool
+
+	// ipAZMapping is the ip -> AZ mapping
+	ipAZMapping map[string]string
+
+	// azNodeMapping is the az -> nodes mapping
+	azNodeMapping map[string]map[string]bool
+
+	// azIPMapping is the az -> IPs mapping
+	azIPMapping map[string]map[string]bool
 )
 
 // Server is the checker server
@@ -43,14 +52,18 @@ type Server struct {
 
 	cfg *Config
 
-	allLeaders map[string]bool
-
 	// etcdClient interacts with etcd
 	etcdClient *etcd.Client
 
-	// db is the db connection
+	// mysqlID is the ID of db connection
+	mysqlID string
+	// mysqlConnection is the db connection
 	mysqlConnection *sql.DB
 	dbLock          sync.Mutex
+
+	chaosJobDone int32
+
+	dmlJobs map[string]DMLJob
 }
 
 // NewServer creates a new server
@@ -75,7 +88,6 @@ func NewServer(cfg *Config) (*Server, error) {
 		cancel:     cancel,
 		etcdClient: cli,
 		cfg:        cfg,
-		allLeaders: make(map[string]bool),
 	}, nil
 
 }
@@ -84,165 +96,166 @@ func NewServer(cfg *Config) (*Server, error) {
 func (s *Server) Start() error {
 	log.Info("check server starts")
 
-	// get current leader
-	leaderID, _, err := s.etcdClient.Get(s.ctx, leaderPath)
+	log.Info("the ID Container mapping is ", s.cfg.IDContainerMapping)
+	log.Info("the Container AZ mapping is ", s.cfg.ContainerAZMapping)
 
-	if err != nil && !errors.IsNotFound(err) {
-		return err
-	}
-	log.Info("leader id is ", string(leaderID))
-	if leaderID != nil {
-		dbConnection, err := s.masterFromLeaderID(string(leaderID))
+	// init AZ related data structures
+	azSet = make(map[string]bool)
+	ipAZMapping = make(map[string]string)
+	azNodeMapping = make(map[string]map[string]bool)
+	azIPMapping = make(map[string]map[string]bool)
+
+	for container, az := range s.cfg.ContainerAZMapping {
+		azSet[az] = true
+		ip, err := IPOf(container)
 		if err != nil {
-			return err
+			log.Errorf("has error when fetching ip of %s, %+v", container, err)
+			os.Exit(1)
 		}
-		s.setDBConnection(dbConnection)
+		ipAZMapping[ip] = az
+
+		nodes, ok := azNodeMapping[az]
+		if !ok {
+			nodes = make(map[string]bool)
+			azNodeMapping[az] = nodes
+		}
+		nodes[container] = true
+
+		ips, ok := azIPMapping[az]
+		if !ok {
+			ips = make(map[string]bool)
+			azIPMapping[az] = ips
+		}
+		ips[ip] = true
 	}
-	connectionCh, errorCh := s.getMaster()
+	log.Info("the azSet is ", azSet)
+	log.Info("the ipAZMapping is ", ipAZMapping)
+	log.Info("the azNodeMapping is ", azNodeMapping)
+	log.Info("the azIPMapping is ", azIPMapping)
+
+	if !strings.HasSuffix(s.cfg.PartitionTemplate, " ") {
+		s.cfg.PartitionTemplate += " "
+	}
+	log.Info("the PartitionTemplate is ", s.cfg.PartitionTemplate)
+
+	// init jobs
+	s.dmlJobs = make(map[string]DMLJob)
+	s.dmlJobs["simple"] = SimpleDMLJob{}
+	s.dmlJobs["long_txn"] = LongTxnJob{}
+
+	masterCh := s.pollMaster()
 
 	go func() {
 		for {
 			select {
-			case conn := <-connectionCh:
-				log.Infof("new connection is %v", conn)
-				s.setDBConnection(conn)
-			case err := <-errorCh:
-				log.Infof("new err is %v", err)
-				s.setDBConnection(nil)
+			case newMasterID := <-masterCh:
+				log.Info("new master ID is ", newMasterID)
+				s.setDBConnection(newMasterID)
 			}
 		}
 	}()
 
-	checkDoneCh := make(chan interface{})
-	checkCount := 0
-	err = s.initDB()
+	err := s.initDB()
+	// initDB ensures that master MySQL has been elected
+	// so all below functions/goroutines are able to get master connections
+
 	if err != nil {
 		return err
 	}
-	checkCount++
-	go func() {
-		log.Info("run dml ")
-		ticker := time.NewTicker(100 * time.Millisecond)
-		c := 0
-		defer ticker.Stop()
-		for range ticker.C {
-			if err := s.runDML(c); err != nil {
-				log.Error("error when running dml ", err)
-				continue
-			}
-			c++
-			if c == s.cfg.MaxCounter {
-				err := s.check()
-				if err != nil {
-					os.Exit(2)
+	var wg sync.WaitGroup
+
+	for jn, j := range s.dmlJobs {
+		log.Info("begin to run job ", jn)
+		wg.Add(1)
+		go func(jobName string, job DMLJob) {
+			ticker := time.NewTicker(job.GetInterval())
+			c := 0
+			defer ticker.Stop()
+			for range ticker.C {
+				_, conn := s.getDBConnection()
+				if err := job.RunDML(conn, c); err != nil {
+					if !strings.Contains(err.Error(), "Error 1290:") {
+						log.Error("error when running ", jobName, err)
+					}
+					continue
 				}
-				checkDoneCh <- 1
-				return
-			}
-		}
-	}()
-
-	checkCount++
-	go func() {
-		log.Info("run time-costing txn ")
-		total := 10
-		c := 0
-		for i := 0; i < total; i++ {
-			if err := s.runTimeCostingTxn(c); err != nil {
-				log.Error(err)
-			} else {
 				c++
+				if c == job.GetMaxCounter() {
+					for atomic.LoadInt32(&s.chaosJobDone) == 0 {
+						time.Sleep(500 * time.Millisecond)
+					}
+					time.Sleep(job.GetCheckWaitTime())
+					err := s.check(jobName, job)
+					if err != nil {
+						os.Exit(2)
+					}
+					wg.Done()
+					return
+				}
 			}
-		}
-		err := s.checkTimeCostingTxn(c)
-		if err != nil {
-			os.Exit(2)
-		}
-		checkDoneCh <- 2
-	}()
+		}(jn, j)
+	}
 
 	go func() {
-		log.Info("run changeMaster")
-		ticker := time.NewTicker(5000 * time.Millisecond)
-		defer ticker.Stop()
-		for range ticker.C {
-			if err := s.runChangeMaster(); err != nil {
-				log.Error(err)
-			}
+		err := s.runChaosJob()
+		if err != nil {
+			log.Errorf("has error when running chaos job %s. error is %v",
+				s.cfg.ChaosJob, err)
+			os.Exit(1)
 		}
-
 	}()
 
-	log.Info("checkCount is ", checkCount)
-	for {
-		select {
-		case r := <-checkDoneCh:
-			log.Info("receive from checkDoneCh: ", r)
-			checkCount--
-			if checkCount == 0 {
-				log.Info("check is done so close")
-				return nil
-			}
-		}
-	}
+	wg.Wait()
+	log.Info("all checks are done so close")
+	return nil
 
 }
 
-func (s *Server) getMaster() (chan *sql.DB, chan error) {
-	connectionCh := make(chan *sql.DB)
-	errorCh := make(chan error)
+func (s *Server) pollMaster() chan string {
+	connectionCh := make(chan string)
 
 	go func() {
-		watcher := s.etcdClient.NewWatcher()
-		watchCh := watcher.Watch(s.ctx,
-			s.etcdClient.KeyWithRootPath(leaderPath))
-
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+		masterID := ""
 		// get leader changer info
 		for {
 			select {
 			case <-s.ctx.Done():
 				return
-			case w := <-watchCh:
+			case <-ticker.C:
 				var newMasterID string
-
-				for _, e := range w.Events {
-					// get the last event
-					log.Info("get new leader event ", e)
-					if e.Type == mvccpb.DELETE {
-						newMasterID = ""
-						continue
-					}
-					if string(e.Kv.Key) == s.etcdClient.KeyWithRootPath(leaderPath) {
-						newMasterID = string(e.Kv.Value)
-					}
-				}
-				if newMasterID == "" {
-					continue
-				}
-				if newMasterID == "127.0.0.1:3309" {
-					log.Error("mysql-node-3 is a only follow node, cannot be a leader")
-					os.Exit(2)
-				}
-				log.Info("new master id is ", newMasterID)
-				s.allLeaders[newMasterID] = true
-				dbConnection, err := s.masterFromLeaderID(newMasterID)
+				ctx, cancel := context.WithTimeout(s.ctx, s.cfg.EtcdDialTimeout)
+				masterBytes, _, err := s.etcdClient.Get(ctx, "master")
 				if err != nil {
-					log.Error("masterFromLeaderID has error ", err)
-					errorCh <- err
+					if errors.IsNotFound(err) {
+						log.Error(err)
+					}
+					newMasterID = ""
+				} else {
+					newMasterID = string(masterBytes)
+				}
+				cancel()
+				if newMasterID == masterID {
 					continue
 				}
-				log.Info("masterFromLeaderID creates new connection ", dbConnection)
-				connectionCh <- dbConnection
+				masterID = newMasterID
+				if masterID == "" {
+					continue
+				}
+				//if newMasterID == "127.0.0.1:3309" {
+				//	log.Error("mysql-node-3 is a only follow node, cannot be a leader")
+				//	os.Exit(2)
+				//}
+				log.Info("new master id is ", masterID)
+				connectionCh <- masterID
 			}
-
 		}
 	}()
-
-	return connectionCh, errorCh
-
+	return connectionCh
 }
 
-func (s *Server) masterFromLeaderID(leaderID string) (*sql.DB, error) {
+func (s *Server) buildDBConnFromID(leaderID string) (*sql.DB, error) {
 	hs := strings.Split(leaderID, ":")
 	var p int
 	if len(hs) < 2 {
@@ -261,58 +274,74 @@ func (s *Server) masterFromLeaderID(leaderID string) (*sql.DB, error) {
 	return mysql.CreateDB(dbConfig)
 }
 
-func (s *Server) getDBConnection() *sql.DB {
-	s.dbLock.Lock()
-	defer s.dbLock.Unlock()
-	return s.mysqlConnection
+func (s *Server) buildDBRootConnFromID(leaderID string) (*sql.DB, error) {
+	hs := strings.Split(leaderID, ":")
+	var p int
+	if len(hs) < 2 {
+		p = 3306
+	} else {
+		p, _ = strconv.Atoi(hs[1])
+	}
+	dbConfig := mysql.DBConfig{
+		Host:     hs[0],
+		User:     s.cfg.RootUser,
+		Password: s.cfg.RootPassword,
+		Port:     p,
+		Timeout:  s.cfg.DBConfig.Timeout,
+	}
+	log.Info("new dbConfig ", dbConfig)
+	return mysql.CreateDB(dbConfig)
 }
 
-func (s *Server) setDBConnection(db *sql.DB) {
+func (s *Server) getDBConnection() (string, *sql.DB) {
 	s.dbLock.Lock()
 	defer s.dbLock.Unlock()
+	return s.mysqlID, s.mysqlConnection
+}
+
+func (s *Server) setDBConnection(newMasterID string) {
+	s.dbLock.Lock()
+	defer s.dbLock.Unlock()
+	dbConnection, err := s.buildDBConnFromID(newMasterID)
+	if err != nil {
+		log.Error("buildDBConnFromID has error ", err)
+		os.Exit(1)
+	}
+	log.Info("buildDBConnFromID creates new connection ", dbConnection)
 	if s.mysqlConnection != nil {
 		s.mysqlConnection.Close()
 	}
-	s.mysqlConnection = db
+	s.mysqlID = newMasterID
+	s.mysqlConnection = dbConnection
 }
 
-func (s *Server) runChangeMaster() error {
-	// get leader
-	leaderID, _, err := s.etcdClient.Get(s.ctx, leaderPath)
-	if err != nil {
-		return nil
-	}
-
-	parsedURL, err := url.Parse("http://" + string(leaderID))
-	// hack logic
-	u := parsedURL.Hostname()
-	port := "1" + parsedURL.Port()
-
-	_, err = http.Get(fmt.Sprintf("http://%s:%s/setReadOnly", u, port))
-	time.Sleep(3 * time.Second)
-	_, err = http.Get(fmt.Sprintf("http://%s:%s/changeMaster", u, port))
-	return err
-}
-
+// initDB is used to drop schema and create schema again.
+// initDB should use `root` as user while connecting to DB
 func (s *Server) initDB() error {
-	var conn *sql.DB
+	log.Info("begin to init DB")
+	var masterID string
 	startTime := time.Now()
-	for conn == nil {
-		conn = s.getDBConnection()
-		if conn == nil {
+	log.Info("wait until agent starts")
+	for masterID == "" {
+		masterID, _ = s.getDBConnection()
+		if masterID == "" {
 			log.Info("still no master")
 			if time.Now().Sub(startTime) > 10*time.Minute {
 				log.Error("10 minutes with no master, exit(2)")
 				os.Exit(2)
 			}
-
 			time.Sleep(1000 * time.Millisecond)
 		}
+	}
+	conn, err := s.buildDBRootConnFromID(masterID)
+	if err != nil {
+		log.Error("has error when buildDBRootConnFromID ", masterID, err)
+		os.Exit(1)
 	}
 
 	log.Info("wait until mysql works fine")
 	startTime = time.Now()
-	_, err := conn.Query("SELECT 1")
+	_, err = conn.Query("SELECT 1")
 	for err != nil {
 		if time.Now().Sub(startTime) > 10*time.Minute {
 			log.Error("10 minutes have passed before mysql works fine, exit(2)")
@@ -320,7 +349,7 @@ func (s *Server) initDB() error {
 		}
 		log.Warn("select 1 has error, sleep. ", err)
 		time.Sleep(500 * time.Millisecond)
-		conn = s.getDBConnection()
+		_, conn = s.getDBConnection()
 		_, err = conn.Query("SELECT 1")
 	}
 
@@ -336,94 +365,85 @@ func (s *Server) initDB() error {
 		return errors.Trace(err)
 	}
 
-	_, err = conn.Exec(`
-					CREATE TABLE checker.check (
-					id INT UNSIGNED NOT NULL,
-					value VARCHAR(45) NOT NULL
-				    )ENGINE=InnoDB DEFAULT CHARSET=utf8;`)
-	if err != nil {
-		log.Error(err)
-		return errors.Trace(err)
+	for _, job := range s.dmlJobs {
+		err = job.Prepare(conn)
+		if err != nil {
+			return errors.Trace(err)
+		}
 	}
 
-	_, err = conn.Exec(`
-					CREATE TABLE checker.long_txn (
-					id INT UNSIGNED NOT NULL,
-					value VARCHAR(45) NOT NULL
-				    )ENGINE=InnoDB DEFAULT CHARSET=utf8;`)
-	if err != nil {
-		log.Error(err)
-		return errors.Trace(err)
-	}
+	// sleep for slave applying master change
+	time.Sleep(5 * time.Second)
 
 	return nil
 }
 
-func (s *Server) runDML(c int) error {
-	conn := s.getDBConnection()
-	_, err := conn.Exec("INSERT INTO checker.check(`id`, `value`) VALUES (?, ?)", c, c)
-	return err
-}
-
-func (s *Server) check() error {
+// check runs the check logic of the job. it checks
+// 1. the master data
+// 2. the master/slave consistency
+func (s *Server) check(jobName string, job DMLJob) error {
 	time.Sleep(1 * time.Second)
-	log.Info("dml check M/S consistency")
-	allLeaders := s.allLeaders
-	for id := range allLeaders {
-		conn, err := s.masterFromLeaderID(id)
+	log.Info("dml check Master consistency for job ", jobName)
+	masterID, masterConn := s.getDBConnection()
+	masterRecord := job.Check(masterConn)
+	if masterRecord != job.GetMaxCounter() {
+		// now master has less records than MaxCounter
+		// it may not fail only if the old master has unexpected issue, for example, fail to renew lease.
+		if atomic.LoadInt32(&s.chaosJobDone) != 2 && atomic.LoadInt32(&s.chaosJobDone) != 3 {
+			log.Errorf("job: %s, insert row is %d expected %d for %s",
+				jobName, masterRecord, job.GetMaxCounter(), masterID)
+			return errors.New("fail to pass the check")
+		}
+		log.Warnf("dml check Master consistency for job %s not passed, %d expected %d. but continue!",
+			jobName, masterRecord, job.GetMaxCounter())
+	} else {
+		log.Infof("dml check Master consistency for job %s passed!", jobName)
+	}
+
+	if atomic.LoadInt32(&s.chaosJobDone) == 3 {
+		log.Info("skip M/S consistency check")
+		return nil
+	}
+
+	// M/S consistency check change to check all nodes under /slave
+	registeredNodes, err := s.etcdClient.PrefixGet(s.ctx, "slave")
+	if err != nil {
+		log.Error("has error when get all registered nodes from etcd. ", err)
+		return err
+	}
+	log.Info("dml check M/S consistency for job ", jobName)
+	for id := range registeredNodes {
+		id = strings.TrimPrefix(id, "slave/")
+		if id == masterID {
+			continue
+		}
+		conn, err := s.buildDBConnFromID(id)
 		if err != nil {
 			return err
 		}
-		row := conn.QueryRow("select count(0) from checker.check")
-		r := 0
-		row.Scan(&r)
-		if r != s.cfg.MaxCounter {
-			log.Errorf("insert row is %d expected %d for %s", r, s.cfg.MaxCounter, id)
+		r := job.Check(conn)
+		if r != masterRecord {
+			log.Errorf("job: %s, insert row is %d expected %d for %s", jobName, r, masterRecord, id)
 			return errors.New("fail to pass the check")
 		}
 	}
-	log.Info("dml check M/S consistency passed!")
+	log.Infof("dml check M/S consistency for job %s passed!", jobName)
 
 	return nil
 }
 
-func (s *Server) runTimeCostingTxn(c int) error {
-	conn := s.getDBConnection()
-	txn, err := conn.Begin()
-	_, err = txn.Exec("INSERT INTO checker.long_txn(`id`, `value`) VALUES (?, ?)", c, c)
-	if err != nil {
-		log.Error("has error in time costing txn insert", err)
-		txn.Rollback()
-		return err
-	}
-	_, err = txn.Exec("SELECT SLEEP(2)")
-	if err != nil {
-		txn.Rollback()
-		return err
-	}
-	err = txn.Commit()
-	return err
-
+func (s *Server) getContainerFromID(id string) string {
+	return s.cfg.IDContainerMapping[id]
 }
 
-func (s *Server) checkTimeCostingTxn(c int) error {
-	log.Info("time costing txn check M/S consistency")
-	allLeaders := s.allLeaders
-	for id := range allLeaders {
-		conn, err := s.masterFromLeaderID(id)
-		if err != nil {
-			return err
-		}
-		row := conn.QueryRow("select count(0) from checker.long_txn")
-		r := 0
-		row.Scan(&r)
-		if r != c {
-			log.Errorf("insert row is %d expected %d for %s", r, c, id)
-			return errors.New("fail to pass the check")
-		}
+func (s *Server) runChaosJob() error {
+	log.Info("begin to run chaos job ", s.cfg.ChaosJob)
+	job, ok := ChaosRegistry[s.cfg.ChaosJob]
+	if !ok {
+		log.Errorf("cannot find chaos job %s from %v", s.cfg.ChaosJob, ChaosRegistry)
+		return errors.New("cannot find target chaos job")
 	}
-	log.Info("time costing txn check M/S consistency success!")
-	return nil
+	return job(s)
 }
 
 // Status describes the status stored in etcd
