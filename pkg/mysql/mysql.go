@@ -219,15 +219,24 @@ func GetMasterStatus(db *sql.DB) (gmysql.Position, GTIDSet, error) {
 // SetReadOnly add read lock to db
 func SetReadOnly(db *sql.DB) error {
 	// _, err := db.Exec("FLUSH TABLES;")
-	_, err := db.Exec("SET GLOBAL read_only = 1;")
+	_, err := db.Exec("SET GLOBAL super_read_only = 1;")
+	if err != nil {
+		return errors.Trace(err)
+	}
+	_, err = db.Exec("SET GLOBAL read_only = 1;")
 
-	return err
+	return errors.Trace(err)
 }
 
 // SetReadWrite release read lock to db
 func SetReadWrite(db *sql.DB) error {
 	_, err := db.Exec("SET GLOBAL read_only = 0;")
-	return err
+	if err != nil {
+		return errors.Trace(err)
+	}
+	_, err = db.Exec("SET GLOBAL super_read_only = 0;")
+
+	return errors.Trace(err)
 }
 
 // PromoteToMaster promotes the db to master
@@ -259,6 +268,7 @@ func GetRunningProcesses(db *sql.DB) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer rs.Close()
 	pids := make([]string, 0)
 	for rs.Next() {
 		var pid string
@@ -274,6 +284,7 @@ func GetRunningDDLCount(db *sql.DB) (int, error) {
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
+	defer rs.Close()
 	var count int
 	if rs.Next() {
 		rs.Scan(&count)

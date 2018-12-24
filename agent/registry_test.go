@@ -41,7 +41,7 @@ func (t *testRegistrySuite) TestRegisterNode(c *C) {
 		NodeID:       "register_node_test",
 		InternalHost: "test",
 		ExternalHost: "test",
-		IsAlive:      false,
+		IsAlive:      true,
 	}
 
 	// validate register logic.

@@ -15,10 +15,10 @@ package agent
 
 import (
 	"context"
-
-	"time"
-
+	"fmt"
+	"strconv"
 	"sync/atomic"
+	"time"
 
 	"git.mobike.io/database/mysql-agent/pkg/log"
 	"github.com/coreos/etcd/clientv3"
@@ -27,23 +27,82 @@ import (
 )
 
 var (
-	leaderPath = "master"
+	leaderPath   = "master"
+	termPath     = join(electionPath, "master", "term")
+	idPath       = join(electionPath, "master", "id")
+	lastUUIDPath = join(electionPath, "master", "last_uuid")
+	lastGTIDPath = join(electionPath, "master", "last_gtid")
+
+	mytermPathPrefix = join(electionPath, "terms")
 )
 
-func (s *Server) getLeader() (string, *mvccpb.KeyValue, error) {
+// Leader represents the Leader info get from etcd
+type Leader struct {
+	name string
+	kv   *mvccpb.KeyValue
+
+	meta LeaderMeta
+
+	// spm holds the value under /{spmPath},
+	// should be empty string or an ID of a node
+	spm string
+}
+
+// LeaderMeta is the meta-info of the leader, which is persist in etcd, with no expiration
+type LeaderMeta struct {
+	name     string
+	term     uint64
+	lastUUID string
+	lastGTID string
+}
+
+func (s *Server) getLeaderAndMyTerm() (*Leader, uint64, error) {
 
 	client := s.node.RawClient()
-
-	data, kv, err := client.Get(s.ctx, leaderPath)
-
-	if err != nil {
-		if errors.IsNotFound(err) {
-			return "", nil, nil
-		}
-		return "", nil, errors.Trace(err)
+	ctx, _ := context.WithTimeout(s.ctx, s.cfg.EtcdDialTimeout)
+	leader := &Leader{
+		meta: LeaderMeta{},
 	}
+	var myTerm uint64
 
-	return string(data), kv, nil
+	txnResp, err := client.Txn(ctx).Then(
+		Concatenate(s.leaderGetOps(), s.myTermGetOps(), s.spmGetOps())...).Commit()
+	if err != nil {
+		return nil, 0, errors.Trace(err)
+	}
+	for _, resp := range txnResp.Responses {
+		kvs := resp.GetResponseRange().GetKvs()
+		if len(kvs) == 0 {
+			continue
+		}
+		kv := kvs[0]
+		switch string(kv.Key) {
+		case s.fullPathOf(leaderPath):
+			leader.kv = kv
+			leader.name = string(kv.Value)
+		case s.fullPathOf(termPath):
+			term, err := strconv.Atoi(string(kv.Value))
+			if err != nil {
+				return nil, 0, errors.Trace(err)
+			}
+			leader.meta.term = uint64(term)
+		case s.fullPathOf(idPath):
+			leader.meta.name = string(kv.Value)
+		case s.fullPathOf(lastUUIDPath):
+			leader.meta.lastUUID = string(kv.Value)
+		case s.fullPathOf(lastGTIDPath):
+			leader.meta.lastGTID = string(kv.Value)
+		case s.fullPathOf(spmPath):
+			leader.spm = string(kv.Value)
+		case s.fullPathOf(s.myTermPath()):
+			myTerm, err = strconv.ParseUint(string(kv.Value), 10, 64)
+			if err != nil {
+				log.Errorf("fail to parse term %s from etcd", string(kv.Value))
+				return nil, 0, errors.NotValidf("fail to parse term %s from etcd", string(kv.Value))
+			}
+		}
+	}
+	return leader, myTerm, nil
 
 }
 
@@ -134,7 +193,7 @@ func (s *Server) resumeLeader() (bool, *clientv3.LeaseGrantResponse, error) {
 
 	resp, err := client.Txn(ctx).
 		If(s.leaderCmp()).
-		Then(clientv3.OpPut(s.fullLeaderPath(), leaderValue, clientv3.WithLease(lr.ID))).
+		Then(s.leaderPutOps(lr.ID, s.term)...).
 		Commit()
 
 	if err != nil {
@@ -167,7 +226,7 @@ func (s *Server) campaignLeader() (bool, *clientv3.LeaseGrantResponse, error) {
 
 	resp, err := client.Txn(ctx).
 		If(clientv3.Compare(clientv3.CreateRevision(s.fullLeaderPath()), "=", 0)).
-		Then(clientv3.OpPut(s.fullLeaderPath(), leaderValue, clientv3.WithLease(lr.ID))).
+		Then(append(s.leaderPutOps(lr.ID, s.term+1), s.myTermPutOps(true)...)...).
 		Commit()
 
 	if err != nil {
@@ -178,7 +237,6 @@ func (s *Server) campaignLeader() (bool, *clientv3.LeaseGrantResponse, error) {
 	if !resp.Succeeded {
 		return false, nil, nil
 	}
-	s.updateLeaseExpireTS()
 	return true, lr, nil
 }
 
@@ -270,6 +328,54 @@ func (s *Server) leaderCmp() clientv3.Cmp {
 		leaderValue)
 }
 
+func (s *Server) leaderGetOps() []clientv3.Op {
+	return []clientv3.Op{clientv3.OpGet(s.fullPathOf(leaderPath)),
+		clientv3.OpGet(s.fullPathOf(termPath)),
+		clientv3.OpGet(s.fullPathOf(idPath)),
+		clientv3.OpGet(s.fullPathOf(lastUUIDPath)),
+		clientv3.OpGet(s.fullPathOf(lastGTIDPath))}
+}
+
+func (s *Server) leaderPutOps(leaseID clientv3.LeaseID, term uint64) []clientv3.Op {
+	var opPutLeaderPath clientv3.Op
+	if leaseID < 0 {
+		opPutLeaderPath = clientv3.OpPut(s.fullPathOf(leaderPath), leaderValue)
+	} else {
+		opPutLeaderPath = clientv3.OpPut(s.fullPathOf(leaderPath), leaderValue, clientv3.WithLease(leaseID))
+	}
+
+	return []clientv3.Op{opPutLeaderPath,
+		clientv3.OpPut(s.fullPathOf(termPath), fmt.Sprint(term)),
+		clientv3.OpPut(s.fullPathOf(idPath), s.node.ID()),
+		clientv3.OpPut(s.fullPathOf(lastUUIDPath), s.lastUUID),
+		clientv3.OpPut(s.fullPathOf(lastGTIDPath), s.lastGTID)}
+}
+
+func (s *Server) myTermGetOps() []clientv3.Op {
+	return []clientv3.Op{clientv3.OpGet(s.fullPathOf(s.myTermPath()))}
+}
+
+func (s *Server) myTermPutOps(increment bool) []clientv3.Op {
+	var term uint64
+	if increment {
+		term = s.term + 1
+	}
+	return []clientv3.Op{clientv3.OpPut(s.fullPathOf(s.myTermPath()), fmt.Sprint(term))}
+}
+
+func (s *Server) persistMyTerm() error {
+	ctx, _ := context.WithTimeout(s.ctx, s.cfg.EtcdDialTimeout)
+	return s.node.RawClient().Put(ctx, s.myTermPath(), fmt.Sprint(s.term))
+}
+
+func (s *Server) myTermPath() string {
+	return join(mytermPathPrefix, s.node.ID())
+}
+
 func (s *Server) fullLeaderPath() string {
-	return s.node.RawClient().KeyWithRootPath(leaderPath)
+	return s.fullPathOf(leaderPath)
+}
+
+func (s *Server) fullPathOf(relativePath string) string {
+	return s.node.RawClient().KeyWithRootPath(relativePath)
 }

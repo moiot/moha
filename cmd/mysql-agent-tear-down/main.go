@@ -71,6 +71,7 @@ func main() {
 }
 
 func waitProcessToStop(pidFile string) error {
+	log.Info("load pid file from ", pidFile)
 	bs, err := ioutil.ReadFile(pidFile)
 	if err != nil {
 		log.Error("error loading mysql pid file, err ", err)
@@ -88,7 +89,7 @@ func waitProcessToStop(pidFile string) error {
 	wpid, err := syscall.Wait4(pid, &wstatus, 0, nil)
 
 	if err != nil {
-		log.Error("error waiting pid, ", pid, ". , err ", err)
+		log.Error("error waiting pid, ", pid, " , err ", err)
 		log.Error("skip mysql waiting")
 		return err
 	}

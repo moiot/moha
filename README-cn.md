@@ -14,6 +14,13 @@
 - __跨数据中心__
 
     mysql-agent 采用 etcd 实现服务的注册和发现，避免了 VIP 的局限，可以搭建跨数据中心的 MySQL 集群         
+ 
+- __一主多从__
+    mysql-agent 支持搭建一主多从的 MySQL 集群，并且在 Failover 时会指定数据最新的从库作为新主
+  
+- __单主模式__ 
+    在集群内只有一个 MySQL 节点存活时，即使 mysql-agent 与 etcd 通信中断，单节点 MySQL 依然可以提供服务。
+    单主模式支持自动进入和自动退出 
      
 - __计划内的主从切换__
 
@@ -81,7 +88,9 @@ docker image prune -f
 - [本地开发](docs/local.md)
 - [架构设计](docs/design.md)
 - [详细设计](docs/detail.md)
+- [一主多从的选主](docs/multi_slaves.md)
 - [调整 lease 长度](docs/lease.md)
+- [单主模式](docs/spm.md)
 - [运维指导](docs/operation.md)
 - [测试与 benchmark](docs/benchmark.md)
 

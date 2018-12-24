@@ -22,9 +22,8 @@ import (
 
 	"git.mobike.io/database/mysql-agent/pkg/etcd"
 	"git.mobike.io/database/mysql-agent/pkg/file"
-	"github.com/juju/errors"
-
 	"git.mobike.io/database/mysql-agent/pkg/log"
+	"github.com/juju/errors"
 )
 
 const (
@@ -56,6 +55,10 @@ type Position struct {
 	GTID string
 
 	UUID string
+
+	SlaveIORunning      bool `json:",omitempty"`
+	SlaveSQLRunning     bool `json:",omitempty"`
+	SecondsBehindMaster int  `json:",omitempty"`
 }
 
 // NodeStatus describes the status information of a node in etcd.
@@ -125,7 +128,7 @@ func (n *agentNode) Register(ctx context.Context) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	return n.RefreshNode(ctx, n.id)
+	return nil
 }
 
 func (n *agentNode) Unregister(ctx context.Context) error {
@@ -144,16 +147,20 @@ func (n *agentNode) Heartbeat(ctx context.Context) <-chan error {
 			log.Info("heartbeat goroutine exited")
 		}()
 
+		ticker := time.NewTicker(time.Duration(n.registerTTL/3+1) * time.Second)
+		defer ticker.Stop()
 		for {
 			select {
-			case <-ctx.Done():
-				log.Info("heartbeat loop receive ctx.Done() so stop.")
-				return
-			case <-time.After(n.refreshInterval):
-				// refresh node with latestPos information.
-				if err := n.RefreshNode(ctx, n.id); err != nil {
+			case <-ticker.C:
+				if err := n.Register(ctx); err != nil {
 					errc <- errors.Trace(err)
 				}
+			case <-n.registerStopCh:
+				log.Info("receive from registerStopCh so register node loop stops")
+				return
+			case <-ctx.Done():
+				log.Info("pctx is done so Heartbeat node loop stops")
+				return
 			}
 		}
 	}()

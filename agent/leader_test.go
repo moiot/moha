@@ -37,16 +37,16 @@ func (t *testAgentServerSuite) TestGetLeader(c *C) {
 	_, err := mockClient.Put(ctx, fullLeaderPath, leaderValue)
 	c.Assert(err, IsNil)
 
-	ns, _, err := testedServer.getLeader()
+	leader, _, err := testedServer.getLeaderAndMyTerm()
 	c.Assert(err, IsNil)
-	c.Assert(ns, Equals, leaderValue)
+	c.Assert(leader.name, Equals, leaderValue)
 
 	// mock no leader in etcd
 	mockClient.Delete(ctx, fullLeaderPath)
 
-	ns, _, err = testedServer.getLeader()
+	leader, _, err = testedServer.getLeaderAndMyTerm()
 	c.Assert(err, IsNil)
-	c.Assert(ns, Equals, "")
+	c.Assert(leader.name, Equals, "")
 
 }
 
@@ -91,6 +91,7 @@ func (t *testAgentServerSuite) TestKeepLeaderAlive(c *C) {
 		node:           mockNode,
 		serviceManager: mockServiceManager,
 		leaseExpireTS:  time.Now().Add(1 * time.Minute).Unix(),
+		db:             mockDB,
 	}
 
 	lr, err := mockClient.Grant(ctx, 10)

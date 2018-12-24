@@ -20,10 +20,9 @@ import (
 	"time"
 
 	"git.mobike.io/database/mysql-agent/pkg/etcd"
+	"git.mobike.io/database/mysql-agent/pkg/log"
 	"github.com/coreos/etcd/clientv3"
 	"github.com/juju/errors"
-
-	"git.mobike.io/database/mysql-agent/pkg/log"
 )
 
 const (
@@ -41,8 +40,9 @@ type EtcdRegistry struct {
 // NewEtcdRegistry returns an EtcdRegistry client.
 func NewEtcdRegistry(cli *etcd.Client, reqTimeout time.Duration) *EtcdRegistry {
 	return &EtcdRegistry{
-		client:     cli,
-		reqTimeout: reqTimeout,
+		client:         cli,
+		reqTimeout:     reqTimeout,
+		registerStopCh: make(chan interface{}),
 	}
 }
 
@@ -66,34 +66,23 @@ func (r *EtcdRegistry) RegisterNode(pctx context.Context, nodeID, internalHost, 
 	}
 
 	key := join(registryPath, nodeID)
-	r.registerStopCh = make(chan interface{})
 	err = r.register(pctx, key, string(objstr), ttl)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	go func() {
-		ticker := time.NewTicker(time.Duration(ttl/3+1) * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				r.register(pctx, key, string(objstr), ttl)
-			case <-r.registerStopCh:
-				log.Info("receive from registerStopCh so register node loop stops")
-				return
-			case <-pctx.Done():
-				log.Info("pctx is done so register node loop stops")
-				return
-			}
-		}
-	}()
-
 	return nil
 
 }
 
-func (r *EtcdRegistry) register(pctx context.Context, key, value string, ttl int64) error {
-	log.Info("register ", key, " to etcd with ttl ", ttl)
+func (r *EtcdRegistry) register(pctx context.Context, key, value string, ttl int64) (err error) {
+	defer func() {
+		if err == nil {
+			log.Info("register ", key, " to etcd with ttl ", ttl)
+		} else {
+			log.Error("register ", key, " to etcd with ttl ", ttl, " fail ", err)
+		}
+	}()
+
 	ctx, cancel := context.WithTimeout(pctx, r.reqTimeout)
 	defer cancel()
 	lessor := r.client.NewLease()
@@ -123,7 +112,7 @@ func (r *EtcdRegistry) Node(pctx context.Context, nodeID string) (*NodeStatus, e
 
 	status := &NodeStatus{}
 	lastPos := &Position{}
-	var isFound, isAlive bool
+	var isFound bool
 	for key, n := range resp {
 		switch key {
 		case reg:
@@ -131,17 +120,12 @@ func (r *EtcdRegistry) Node(pctx context.Context, nodeID string) (*NodeStatus, e
 				return nil, errors.Annotatef(err, "error unmarshal NodeStatus with nodeID(%s)", nodeID)
 			}
 			isFound = true
-		case ref:
-			isAlive = true
-			if err := json.Unmarshal(n, &lastPos); err != nil {
-				return nil, errors.Annotatef(err, "error unmarshal NodeStatus with nodeID(%s)", nodeID)
-			}
 		}
 	}
 	if !isFound {
 		return nil, errors.NotFoundf("cannot found node %s from etcd", nodeID)
 	}
-	status.IsAlive = isAlive
+	status.IsAlive = true
 	status.LatestPos = *lastPos
 
 	return status, nil

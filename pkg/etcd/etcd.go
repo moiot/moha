@@ -54,10 +54,12 @@ func NewClientFromCfg(endpoints []string,
 	dialTimeout time.Duration,
 	root string, clusterName, username, password string) (*Client, error) {
 	cli, err := clientv3.New(clientv3.Config{
-		Endpoints:   endpoints,
-		DialTimeout: dialTimeout,
-		Username:    username,
-		Password:    password,
+		Endpoints:            endpoints,
+		DialTimeout:          dialTimeout,
+		DialKeepAliveTime:    1 * time.Second,
+		DialKeepAliveTimeout: 1 * time.Second,
+		Username:             username,
+		Password:             password,
 	})
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -89,7 +91,7 @@ func (e *Client) Put(ctx context.Context, k string, val string, opts ...clientv3
 // Get returns a key/value matches the given key.
 // returns the value, leaderID and error respectively
 func (e *Client) Get(ctx context.Context, key string) ([]byte, *mvccpb.KeyValue, error) {
-	key = keyWithPrefix(e.rootPath, key)
+	key = e.KeyWithRootPath(key)
 
 	kv := clientv3.NewKV(e.client)
 
@@ -105,7 +107,27 @@ func (e *Client) Get(ctx context.Context, key string) ([]byte, *mvccpb.KeyValue,
 	return resp.Kvs[0].Value, resp.Kvs[0], nil
 }
 
-// MultiGet returns the trie struct that contains key/value with same prefix.
+// PrefixGet returns the map struct that contains key/value with same prefix.
+func (e *Client) PrefixGet(ctx context.Context, prefix string) (map[string][]byte, error) {
+	key := e.KeyWithRootPath(prefix)
+	kv := clientv3.NewKV(e.client)
+	resp, err := kv.Get(ctx, key, clientv3.WithPrefix())
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	r := make(map[string][]byte)
+	for _, kv := range resp.Kvs {
+		prefix := e.rootPath
+		if !strings.HasSuffix(prefix, "/") {
+			prefix = prefix + "/"
+		}
+		k := strings.TrimPrefix(string(kv.Key), prefix)
+		r[k] = kv.Value
+	}
+	return r, nil
+}
+
+// MultiGet returns the map struct that contains key/value within the given keys.
 func (e *Client) MultiGet(ctx context.Context, keys ...string) (map[string][]byte, error) {
 
 	txn := e.client.Txn(ctx)
@@ -136,7 +158,7 @@ func (e *Client) MultiGet(ctx context.Context, keys ...string) (map[string][]byt
 
 // Delete deletes the `key/values` with matching prefix or key.
 func (e *Client) Delete(ctx context.Context, key string, withPrefixMatch bool) error {
-	key = keyWithPrefix(e.rootPath, key)
+	key = e.KeyWithRootPath(key)
 
 	var opts []clientv3.OpOption
 	if withPrefixMatch {
@@ -155,7 +177,7 @@ func (e *Client) Delete(ctx context.Context, key string, withPrefixMatch bool) e
 // List returns the trie struct that contains key/value with same prefix.
 func (e *Client) List(ctx context.Context, key string) (*Node, error) {
 	// ensure key has '/' suffix
-	key = keyWithPrefix(e.rootPath, key)
+	key = e.KeyWithRootPath(key)
 	if !strings.HasSuffix(key, "/") {
 		key += "/"
 	}

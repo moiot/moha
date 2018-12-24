@@ -7,6 +7,12 @@ etcd-username = "root"
 etcd-password = "root"
 max-counter = 100
 
+root-user = "mysql_user"
+root-password = "mysql_master_user_pwd"
+
+partition-template = "docker run -v /var/run/docker.sock:/var/run/docker.sock --rm -d docker.mobike.io/databases/pumba:latest netem -d 5m "
+partition-type = "loss -p 100 "
+
 [db-config]
 host = "127.0.0.1"
 user = "mysql_user"
@@ -16,3 +22,18 @@ timeout = "5s"
 replication_user = "replication"
 replication_password = "replication_pwd"
 replication_net = "%"
+
+[id-container-mapping]
+"127.0.0.1:3307" = "mysql-node-1"
+"127.0.0.1:3308" = "mysql-node-2"
+"127.0.0.1:3309" = "mysql-node-3"
+
+[container-az-mapping]
+mysql-node-1 = "az1"
+mysql-node-2 = "az2"
+mysql-node-3 = "az3"
+etcd-node-0 = "az1"
+etcd-node-1 = "az1"
+etcd-node-2 = "az2"
+etcd-node-3 = "az3"
+etcd-node-4 = "az3"
