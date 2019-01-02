@@ -22,7 +22,7 @@ import (
 	"strings"
 	"time"
 
-	"git.mobike.io/database/mysql-agent/pkg/log"
+	"github.com/moiot/moha/pkg/log"
 	"github.com/coreos/etcd/clientv3"
 )
 

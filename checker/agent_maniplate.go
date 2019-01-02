@@ -29,7 +29,7 @@ import (
 
 	"path"
 
-	"git.mobike.io/database/mysql-agent/pkg/log"
+	"github.com/moiot/moha/pkg/log"
 	"github.com/juju/errors"
 )
 

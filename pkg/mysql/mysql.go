@@ -17,8 +17,8 @@ import (
 	"database/sql"
 	"fmt"
 
-	"git.mobike.io/database/mysql-agent/pkg/log"
-	"git.mobike.io/database/mysql-agent/pkg/types"
+	"github.com/moiot/moha/pkg/log"
+	"github.com/moiot/moha/pkg/types"
 	_ "github.com/go-sql-driver/mysql" // import mysql for side-effects
 	"github.com/juju/errors"
 	gmysql "github.com/siddontang/go-mysql/mysql"

@@ -18,8 +18,8 @@ import (
 	"encoding/json"
 	"strings"
 
-	"git.mobike.io/database/mysql-agent/pkg/log"
-	"git.mobike.io/database/mysql-agent/pkg/mysql"
+	"github.com/moiot/moha/pkg/log"
+	"github.com/moiot/moha/pkg/mysql"
 	"github.com/juju/errors"
 )
 

@@ -18,7 +18,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"git.mobike.io/database/mysql-agent/checker"
+	"github.com/moiot/moha/checker"
 	"github.com/juju/errors"
 	log "github.com/sirupsen/logrus"
 )

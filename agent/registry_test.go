@@ -17,8 +17,8 @@ import (
 	"context"
 	"time"
 
-	"git.mobike.io/database/mysql-agent/pkg/etcd"
-	"git.mobike.io/database/mysql-agent/pkg/log"
+	"github.com/moiot/moha/pkg/etcd"
+	"github.com/moiot/moha/pkg/log"
 	"github.com/juju/errors"
 	. "gopkg.in/check.v1"
 )

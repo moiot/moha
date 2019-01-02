@@ -26,9 +26,9 @@ import (
 
 	"time"
 
-	"git.mobike.io/database/mysql-agent/agent"
+	"github.com/moiot/moha/agent"
 
-	"git.mobike.io/database/mysql-agent/pkg/log"
+	"github.com/moiot/moha/pkg/log"
 )
 
 func main() {

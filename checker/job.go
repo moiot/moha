@@ -18,7 +18,7 @@ import (
 
 	"time"
 
-	"git.mobike.io/database/mysql-agent/pkg/log"
+	"github.com/moiot/moha/pkg/log"
 )
 
 // DMLJob is the abstraction of the writing and checking job

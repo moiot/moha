@@ -16,7 +16,7 @@ package agent
 import (
 	"runtime/debug"
 
-	"git.mobike.io/database/mysql-agent/pkg/log"
+	"github.com/moiot/moha/pkg/log"
 	"github.com/prometheus/client_golang/prometheus"
 )
 

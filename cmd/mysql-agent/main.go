@@ -21,10 +21,10 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 
-	"git.mobike.io/database/mysql-agent/agent"
+	"github.com/moiot/moha/agent"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"git.mobike.io/database/mysql-agent/pkg/log"
+	"github.com/moiot/moha/pkg/log"
 )
 
 func main() {

@@ -17,7 +17,7 @@ import (
 	"net/url"
 	"strings"
 
-	"git.mobike.io/database/mysql-agent/pkg/types"
+	"github.com/moiot/moha/pkg/types"
 	"github.com/juju/errors"
 )
 

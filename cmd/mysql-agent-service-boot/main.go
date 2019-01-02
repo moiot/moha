@@ -19,9 +19,9 @@ import (
 	"strconv"
 	"syscall"
 
-	"git.mobike.io/database/mysql-agent/agent"
-	"git.mobike.io/database/mysql-agent/pkg/log"
-	"git.mobike.io/database/mysql-agent/pkg/systemcall"
+	"github.com/moiot/moha/agent"
+	"github.com/moiot/moha/pkg/log"
+	"github.com/moiot/moha/pkg/systemcall"
 )
 
 func main() {

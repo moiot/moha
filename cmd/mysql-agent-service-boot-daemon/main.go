@@ -18,7 +18,7 @@ import (
 	"os"
 	"syscall"
 
-	"git.mobike.io/database/mysql-agent/pkg/log"
+	"github.com/moiot/moha/pkg/log"
 )
 
 func main() {

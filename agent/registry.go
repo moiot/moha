@@ -19,8 +19,8 @@ import (
 	"path"
 	"time"
 
-	"git.mobike.io/database/mysql-agent/pkg/etcd"
-	"git.mobike.io/database/mysql-agent/pkg/log"
+	"github.com/moiot/moha/pkg/etcd"
+	"github.com/moiot/moha/pkg/log"
 	"github.com/coreos/etcd/clientv3"
 	"github.com/juju/errors"
 )

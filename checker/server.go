@@ -23,10 +23,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"git.mobike.io/database/mysql-agent/pkg/etcd"
-	"git.mobike.io/database/mysql-agent/pkg/log"
-	"git.mobike.io/database/mysql-agent/pkg/mysql"
-	"git.mobike.io/database/mysql-agent/pkg/types"
+	"github.com/moiot/moha/pkg/etcd"
+	"github.com/moiot/moha/pkg/log"
+	"github.com/moiot/moha/pkg/mysql"
+	"github.com/moiot/moha/pkg/types"
 	"github.com/juju/errors"
 )
 
