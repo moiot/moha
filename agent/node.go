@@ -56,6 +56,8 @@ type Position struct {
 
 	UUID string
 
+	EndTxnID uint64 `json:",omitempty"`
+
 	SlaveIORunning      bool `json:",omitempty"`
 	SlaveSQLRunning     bool `json:",omitempty"`
 	SecondsBehindMaster int  `json:",omitempty"`

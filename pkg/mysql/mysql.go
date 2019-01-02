@@ -18,24 +18,11 @@ import (
 	"fmt"
 
 	"git.mobike.io/database/mysql-agent/pkg/log"
+	"git.mobike.io/database/mysql-agent/pkg/types"
 	_ "github.com/go-sql-driver/mysql" // import mysql for side-effects
 	"github.com/juju/errors"
 	gmysql "github.com/siddontang/go-mysql/mysql"
 )
-
-// DBConfig is the DB configuration.
-type DBConfig struct {
-	Host     string `toml:"host" json:"host"`
-	User     string `toml:"user" json:"user"`
-	Password string `toml:"password" json:"password"`
-	Port     int    `toml:"port" json:"port"`
-
-	Timeout string `toml:"timeout" json:"timeout"`
-
-	ReplicationUser     string `toml:"replication_user" json:"replication_user"`
-	ReplicationPassword string `toml:"replication_password" json:"replication_password"`
-	ReplicationNet      string `toml:"replication_net" json:"replication_net"`
-}
 
 // GTIDSet wraps mysql.MysqlGTIDSet
 type GTIDSet struct {
@@ -72,7 +59,7 @@ func GetTxnIDFromGTIDStr(gtidStr, serverUUID string) (int64, error) {
 }
 
 // CreateDB creates db connection using the cfg
-func CreateDB(cfg DBConfig) (*sql.DB, error) {
+func CreateDB(cfg types.DBConfig) (*sql.DB, error) {
 	dbDSN := fmt.Sprintf("%s:%s@tcp(%s:%d)/?charset=utf8&interpolateParams=true&readTimeout=%s&writeTimeout=%s&timeout=%s",
 		cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Timeout, cfg.Timeout, cfg.Timeout)
 	db, err := sql.Open("mysql", dbDSN)

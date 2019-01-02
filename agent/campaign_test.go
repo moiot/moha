@@ -16,29 +16,19 @@ package agent
 import (
 	"encoding/json"
 
-	"gopkg.in/DATA-DOG/go-sqlmock.v1"
 	. "gopkg.in/check.v1"
 )
 
 func (t *testAgentServerSuite) TestUploadLogForElectionAsSlave(c *C) {
-
-	db, mock, err := sqlmock.New()
-	c.Assert(err, IsNil)
-	mock.ExpectQuery("SHOW SLAVE STATUS").
-		WillReturnRows(sqlmock.
-			NewRows([]string{"Master_UUID", "Executed_Gtid_Set"}).
-			AddRow("85ab69d1-b21f-11e6-9c5e-64006a8978d2", "85ab69d1-b21f-11e6-9c5e-64006a8978d2:1-46"))
-
 	testedServer := Server{
 		ctx:            ctx,
 		cfg:            mockCfg,
 		node:           mockNode,
 		serviceManager: mockServiceManager,
-		db:             db,
 		term:           5,
 	}
 
-	err = testedServer.uploadLogForElectionAsSlave()
+	err := testedServer.uploadLogForElectionAsSlave()
 	c.Assert(err, IsNil)
 
 	value, _, err := mockNode.RawClient().
@@ -55,26 +45,15 @@ func (t *testAgentServerSuite) TestUploadLogForElectionAsSlave(c *C) {
 
 func (t *testAgentServerSuite) TestUploadLogForElectionAsFormerMaster(c *C) {
 
-	db, mock, err := sqlmock.New()
-	c.Assert(err, IsNil)
-	mock.ExpectQuery("SHOW MASTER STATUS").
-		WillReturnRows(sqlmock.
-			NewRows([]string{"File", "Position", "Binlog_Do_DB", "Binlog_Ignore_DB", "Executed_Gtid_Set"}).
-			AddRow("mysql-bin.000005", 188858056, "", "", "85ab69d1-b21f-11e6-9c5e-64006a8978d3:1-46"))
-	mock.ExpectQuery("SELECT @@server_uuid").
-		WillReturnRows(sqlmock.
-			NewRows([]string{"@@server_uuid"}).
-			AddRow("85ab69d1-b21f-11e6-9c5e-64006a8978d3"))
 	testedServer := Server{
 		ctx:            ctx,
 		cfg:            mockCfg,
 		node:           mockNode,
 		serviceManager: mockServiceManager,
-		db:             db,
 		term:           5,
 	}
 
-	err = testedServer.uploadLogForElectionAsFormerMaster()
+	err := testedServer.uploadLogForElectionAsFormerMaster()
 	c.Assert(err, IsNil)
 
 	value, _, err := mockNode.RawClient().
@@ -84,8 +63,8 @@ func (t *testAgentServerSuite) TestUploadLogForElectionAsFormerMaster(c *C) {
 	err = json.Unmarshal(value, &uploadedLog)
 	c.Assert(err, IsNil)
 	c.Assert(uploadedLog.Term, Equals, uint64(6))
-	c.Assert(uploadedLog.LastUUID, Equals, "85ab69d1-b21f-11e6-9c5e-64006a8978d3")
-	c.Assert(uploadedLog.LastGTID, Equals, "85ab69d1-b21f-11e6-9c5e-64006a8978d3:1-46")
+	c.Assert(uploadedLog.LastUUID, Equals, "85ab69d1-b21f-11e6-9c5e-64006a8978d2")
+	c.Assert(uploadedLog.LastGTID, Equals, "85ab69d1-b21f-11e6-9c5e-64006a8978d2:1-46")
 
 }
 

@@ -24,18 +24,20 @@ import (
 )
 
 // DoubleForkAndExecute fork current process twice and runs syscall.Exec
-func DoubleForkAndExecute(cfgFile string) error {
+func DoubleForkAndExecute(fd int, cfgFile string) error {
 	procAttr := &syscall.ProcAttr{
 		Env:   os.Environ(),
 		Files: []uintptr{os.Stdin.Fd(), os.Stdout.Fd(), os.Stderr.Fd()},
 	}
 	cpid, err := syscall.ForkExec("/agent/mysql-agent-service-boot",
-		[]string{"/agent/mysql-agent-service-boot",
+		[]string{"/agent/mysql-agent-service-boot", fmt.Sprint(fd),
 			fmt.Sprintf("-config=%s", cfgFile)},
 		procAttr)
-	wstatus := new(syscall.WaitStatus)
-	wpid, err := waitpid(cpid, wstatus, 0)
-	log.Infof("Agent process waitpid, pid=%d, waitstatus is %d ,error is %v", wpid, *wstatus, err)
+	go func() {
+		wstatus := new(syscall.WaitStatus)
+		wpid, err := waitpid(cpid, wstatus, 0)
+		log.Infof("Agent process waitpid, pid=%d, waitstatus is %d ,error is %v", wpid, *wstatus, err)
+	}()
 	return errors.Trace(err)
 }
 

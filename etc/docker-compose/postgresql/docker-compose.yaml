@@ -1,0 +1,189 @@
+version: '3.3'
+
+services:
+  postgresql-test-1:
+    build: .
+    depends_on:
+    - etcd0
+    - etcd1
+    - etcd2
+    - etcd3
+    - etcd4
+    ports:
+    - '5433:5432'
+    - '15433:15432'
+    entrypoint: /agent/supervise
+    volumes:
+    - './node01.toml:/agent/config.toml'
+    - '../../../logs/supervise-1.log:/agent/log/supervise.log:rw'
+    - '../../../logs:/agent/log:rw'
+    - 'postgresql-node-1-data:/var/lib/postgresql/data:rw'
+    container_name: postgresql-node-1
+    environment:
+      MAX_CONNECTIONS: 500
+      WAL_KEEP_SEGMENTS: 256
+      MAX_WAL_SENDERS: 100
+      REPLICATION_ROLE: master
+      REPLICATION_USER: replication
+      REPLICATION_PASSWORD: "replication"
+  postgresql-test-2:
+    build: .
+    depends_on:
+    - etcd0
+    - etcd1
+    - etcd2
+    - etcd3
+    - etcd4
+    ports:
+    - '5434:5432'
+    - '15434:15432'
+    entrypoint: /agent/supervise
+    volumes:
+    - './node02.toml:/agent/config.toml'
+    - '../../../logs/supervise-2.log:/agent/log/supervise.log:rw'
+    - '../../../logs:/agent/log:rw'
+    - 'postgresql-node-2-data:/var/lib/postgresql/data:rw'
+    container_name: postgresql-node-2
+    environment:
+      MAX_CONNECTIONS: 500
+      WAL_KEEP_SEGMENTS: 256
+      MAX_WAL_SENDERS: 100
+      REPLICATION_ROLE: master
+      REPLICATION_USER: replication
+      REPLICATION_PASSWORD: "replication"
+
+  etcd0:
+    image: 'docker.mobike.io/databases/etcd:v3.3.2'
+    ports:
+    - '32768:2379'
+    volumes:
+    - 'etcd0:/etcd_data'
+    environment:
+      ETCDCTL_API: 3
+    container_name: etcd-node-0
+    command:
+    - /usr/local/bin/etcd
+    - '-name'
+    - etcd0
+    - '--data-dir'
+    - /etcd_data
+    - '-advertise-client-urls'
+    - 'http://etcd0:2379'
+    - '-listen-client-urls'
+    - 'http://0.0.0.0:2379'
+    - '-initial-advertise-peer-urls'
+    - 'http://etcd0:2380'
+    - '-listen-peer-urls'
+    - 'http://0.0.0.0:2380'
+    - '-initial-cluster'
+    - 'etcd0=http://etcd0:2380,etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380,etcd4=http://etcd4:2380'
+  etcd1:
+    image: 'docker.mobike.io/databases/etcd:v3.3.2'
+    ports:
+    - '32769:2379'
+    volumes:
+    - 'etcd1:/etcd_data'
+    environment:
+      ETCDCTL_API: 3
+    container_name: etcd-node-1
+    command:
+    - /usr/local/bin/etcd
+    - '-name'
+    - etcd1
+    - '--data-dir'
+    - /etcd_data
+    - '-advertise-client-urls'
+    - 'http://etcd1:2379'
+    - '-listen-client-urls'
+    - 'http://0.0.0.0:2379'
+    - '-initial-advertise-peer-urls'
+    - 'http://etcd1:2380'
+    - '-listen-peer-urls'
+    - 'http://0.0.0.0:2380'
+    - '-initial-cluster'
+    - 'etcd0=http://etcd0:2380,etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380,etcd4=http://etcd4:2380'
+  etcd2:
+    image: 'docker.mobike.io/databases/etcd:v3.3.2'
+    ports:
+    - '32770:2379'
+    volumes:
+    - 'etcd2:/etcd_data'
+    environment:
+      ETCDCTL_API: 3
+    container_name: etcd-node-2
+    command:
+    - /usr/local/bin/etcd
+    - '-name'
+    - etcd2
+    - '--data-dir'
+    - /etcd_data
+    - '-advertise-client-urls'
+    - 'http://etcd2:2379'
+    - '-listen-client-urls'
+    - 'http://0.0.0.0:2379'
+    - '-initial-advertise-peer-urls'
+    - 'http://etcd2:2380'
+    - '-listen-peer-urls'
+    - 'http://0.0.0.0:2380'
+    - '-initial-cluster'
+    - 'etcd0=http://etcd0:2380,etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380,etcd4=http://etcd4:2380'
+  etcd3:
+    image: 'docker.mobike.io/databases/etcd:v3.3.2'
+    ports:
+    - '32771:2379'
+    volumes:
+    - 'etcd3:/etcd_data'
+    environment:
+      ETCDCTL_API: 3
+    container_name: etcd-node-3
+    command:
+    - /usr/local/bin/etcd
+    - '-name'
+    - etcd3
+    - '--data-dir'
+    - /etcd_data
+    - '-advertise-client-urls'
+    - 'http://etcd3:2379'
+    - '-listen-client-urls'
+    - 'http://0.0.0.0:2379'
+    - '-initial-advertise-peer-urls'
+    - 'http://etcd3:2380'
+    - '-listen-peer-urls'
+    - 'http://0.0.0.0:2380'
+    - '-initial-cluster'
+    - 'etcd0=http://etcd0:2380,etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380,etcd4=http://etcd4:2380'
+  etcd4:
+    image: 'docker.mobike.io/databases/etcd:v3.3.2'
+    ports:
+    - '32772:2379'
+    volumes:
+    - 'etcd4:/etcd_data'
+    environment:
+      ETCDCTL_API: 3
+    container_name: etcd-node-4
+    command:
+    - /usr/local/bin/etcd
+    - '-name'
+    - etcd4
+    - '--data-dir'
+    - /etcd_data
+    - '-advertise-client-urls'
+    - 'http://etcd4:2379'
+    - '-listen-client-urls'
+    - 'http://0.0.0.0:2379'
+    - '-initial-advertise-peer-urls'
+    - 'http://etcd4:2380'
+    - '-listen-peer-urls'
+    - 'http://0.0.0.0:2380'
+    - '-initial-cluster'
+    - 'etcd0=http://etcd0:2380,etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380,etcd4=http://etcd4:2380'
+
+volumes:
+  etcd0: {}
+  etcd1: {}
+  etcd2: {}
+  etcd3: {}
+  etcd4: {}
+  postgresql-node-1-data: {}
+  postgresql-node-2-data: {}
+  postgresql-node-3-data: {}
