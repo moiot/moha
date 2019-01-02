@@ -3,17 +3,16 @@
 
 ### 发版
 
-agent 的发布是基于 MySQL 的 docker 镜像，所以发布的是 `mysql-agent:{version}` 的镜像格式
+MoHA 的发布是基于 MySQL 的 docker 镜像，所以发布的是 `moiot/moha:<tag>` 的镜像格式
 
 #### 基础镜像配置
 **第一次**打包镜像的时候需要执行下面命令，配置基础镜像
 ```bash
 docker pull gcc:8.1.0
-docker tag gcc:8.1.0 docker.mobike.io/databases/gcc:8.1.0
 docker pull golang:1.11.0
-docker tag golang:1.11.0 docker.mobike.io/databases/golang:1.11.0
 docker pull quay.io/coreos/etcd:v3.3.2
-docker tag quay.io/coreos/etcd:v3.3.2 docker.mobike.io/databases/etcd:v3.3.2
+docker build etc/etcd-image/v3.3.2/ -t moiot/etcd:v3.3.2
+docker build etc/mysql-image/5.7.22-pmm/ -t moiot/mysql:5.7.22-pmm
 ```
 
 之后可以执行 `make release` 查看指导

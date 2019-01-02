@@ -220,7 +220,7 @@ func partitionMasterAZCheck(s *Server) error {
 func singlePointMasterCheck(s *Server) error {
 
 	partitionTemplate := "docker run -v /var/run/docker.sock:/var/run/docker.sock --rm -d " +
-		"docker.mobike.io/databases/pumba:latest netem -d 30s "
+		"moiot/pumba:latest netem -d 30s "
 	partitionType := "loss -p 100 "
 	var err error
 

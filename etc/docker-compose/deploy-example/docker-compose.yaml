@@ -1,7 +1,7 @@
 version: '3.3'
 services:
     mysql_service_1:
-        image: docker.mobike.io/databases/mysql-agent:master-tag
+        image: moiot/mysql-agent:master-tag
         network_mode: host
         entrypoint: /agent/supervise
         volumes:

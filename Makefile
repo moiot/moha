@@ -40,8 +40,8 @@ agent:
 
 docker-agent:
 	mkdir -p bin/
-	docker run --rm -v `pwd`:/usr/src/myapp -w /usr/src/myapp docker.mobike.io/databases/gcc:8.1.0 gcc -o bin/supervise supervise/*.c
-	docker run --rm -v `pwd`:/go/src/github.com/moiot/moha -w /go/src/github.com/moiot/moha docker.mobike.io/databases/golang:1.11.0 make agent
+	docker run --rm -v `pwd`:/usr/src/myapp -w /usr/src/myapp gcc:8.1.0 gcc -o bin/supervise supervise/*.c
+	docker run --rm -v `pwd`:/go/src/github.com/moiot/moha -w /go/src/github.com/moiot/moha golang:1.11.0 make agent
 	cp bin/* etc/docker-compose/agent/
 	cp bin/* etc/docker-compose/postgresql/
 
@@ -49,7 +49,7 @@ checker:
 	$(GOBUILD) -ldflags '$(LDFLAGS)' -o bin/mysql-agent-checker cmd/mysql-agent-checker/main.go
 
 docker-checker:
-	docker run --rm -e GOOS=`uname | tr 'A-Z' 'a-z'` -v `pwd`:/go/src/github.com/moiot/moha -w /go/src/github.com/moiot/moha docker.mobike.io/databases/golang:1.11.0 bash -c "make checker"
+	docker run --rm -e GOOS=`uname | tr 'A-Z' 'a-z'` -v `pwd`:/go/src/github.com/moiot/moha -w /go/src/github.com/moiot/moha golang:1.11.0 bash -c "make checker"
 
 checker-test:
 	@ docker exec mysql-node-1 mysql -h 127.0.0.1 -P 3306 -u mysql_user -pmysql_master_user_pwd -e 'select 1' >/dev/null || true
@@ -120,7 +120,7 @@ tag:
 
 docker-image:
 	@ make docker-agent
-	@ docker build -t docker.mobike.io/databases/mysql-agent:$(TAG) ./etc/docker-compose/agent
+	@ docker build -t moiot/moha:$(TAG) ./etc/docker-compose/agent
 
 env-up:
 	@ echo "start etcd cluster"
