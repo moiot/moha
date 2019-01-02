@@ -27,12 +27,13 @@ import (
 )
 
 var (
-	leaderPath   = "master"
-	termPath     = join(electionPath, "master", "term")
-	idPath       = join(electionPath, "master", "id")
-	lastUUIDPath = join(electionPath, "master", "last_uuid")
-	lastGTIDPath = join(electionPath, "master", "last_gtid")
-
+	leaderPath       = "master"
+	termPath         = join(electionPath, "master", "term")
+	idPath           = join(electionPath, "master", "id")
+	lastUUIDPath     = join(electionPath, "master", "last_uuid")
+	lastGTIDPath     = join(electionPath, "master", "last_gtid")
+	lastTxnIDPath    = join(electionPath, "master", "last_txnid")
+	metaVersionPath  = join(electionPath, "master", "meta_version")
 	mytermPathPrefix = join(electionPath, "terms")
 )
 
@@ -50,10 +51,15 @@ type Leader struct {
 
 // LeaderMeta is the meta-info of the leader, which is persist in etcd, with no expiration
 type LeaderMeta struct {
-	name     string
-	term     uint64
-	lastUUID string
-	lastGTID string
+	name      string
+	term      uint64
+	lastUUID  string
+	lastGTID  string
+	lastTxnID uint64
+
+	// version is used to identify different LeaderMeta Schema
+	// used for backward/forward compatibility
+	version int
 }
 
 func (s *Server) getLeaderAndMyTerm() (*Leader, uint64, error) {
@@ -92,6 +98,23 @@ func (s *Server) getLeaderAndMyTerm() (*Leader, uint64, error) {
 			leader.meta.lastUUID = string(kv.Value)
 		case s.fullPathOf(lastGTIDPath):
 			leader.meta.lastGTID = string(kv.Value)
+		case s.fullPathOf(metaVersionPath):
+			v, err := strconv.Atoi(string(kv.Value))
+			if err != nil {
+				log.Errorf("has error in parsing meta version: %s. err: %v",
+					string(kv.Value), err)
+			} else {
+				leader.meta.version = v
+			}
+		case s.fullPathOf(lastTxnIDPath):
+			ltID, err := strconv.ParseUint(string(kv.Value), 10, 64)
+			if err != nil {
+				log.Errorf("has error in parsing last txnID: %s. err: %v",
+					string(kv.Value), err)
+			} else {
+				leader.meta.lastTxnID = ltID
+			}
+
 		case s.fullPathOf(spmPath):
 			leader.spm = string(kv.Value)
 		case s.fullPathOf(s.myTermPath()):
@@ -109,7 +132,8 @@ func (s *Server) getLeaderAndMyTerm() (*Leader, uint64, error) {
 func (s *Server) deleteLeaderKey() error {
 	resp, err := s.node.RawClient().Txn(s.ctx).
 		If(s.leaderCmp()).
-		Then(clientv3.OpDelete(s.fullLeaderPath())).
+		Then(clientv3.OpDelete(s.fullLeaderPath()),
+			clientv3.OpDelete(s.fullPathOf(metaVersionPath))).
 		Commit()
 	if err != nil {
 		return errors.Trace(err)
@@ -332,21 +356,29 @@ func (s *Server) leaderGetOps() []clientv3.Op {
 	return []clientv3.Op{clientv3.OpGet(s.fullPathOf(leaderPath)),
 		clientv3.OpGet(s.fullPathOf(termPath)),
 		clientv3.OpGet(s.fullPathOf(idPath)),
+		clientv3.OpGet(s.fullPathOf(metaVersionPath)),
 		clientv3.OpGet(s.fullPathOf(lastUUIDPath)),
+		clientv3.OpGet(s.fullPathOf(lastTxnIDPath)),
 		clientv3.OpGet(s.fullPathOf(lastGTIDPath))}
 }
 
 func (s *Server) leaderPutOps(leaseID clientv3.LeaseID, term uint64) []clientv3.Op {
 	var opPutLeaderPath clientv3.Op
+	var opPutMetaVersionPath clientv3.Op
 	if leaseID < 0 {
 		opPutLeaderPath = clientv3.OpPut(s.fullPathOf(leaderPath), leaderValue)
+		opPutMetaVersionPath = clientv3.OpPut(s.fullPathOf(metaVersionPath), fmt.Sprint(globalSchemaVersion))
 	} else {
 		opPutLeaderPath = clientv3.OpPut(s.fullPathOf(leaderPath), leaderValue, clientv3.WithLease(leaseID))
+		opPutMetaVersionPath = clientv3.OpPut(s.fullPathOf(metaVersionPath),
+			fmt.Sprint(globalSchemaVersion), clientv3.WithLease(leaseID))
 	}
 
 	return []clientv3.Op{opPutLeaderPath,
 		clientv3.OpPut(s.fullPathOf(termPath), fmt.Sprint(term)),
 		clientv3.OpPut(s.fullPathOf(idPath), s.node.ID()),
+		opPutMetaVersionPath,
+		clientv3.OpPut(s.fullPathOf(lastTxnIDPath), fmt.Sprint(s.lastTxnID)),
 		clientv3.OpPut(s.fullPathOf(lastUUIDPath), s.lastUUID),
 		clientv3.OpPut(s.fullPathOf(lastGTIDPath), s.lastGTID)}
 }

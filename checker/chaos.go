@@ -254,8 +254,8 @@ func singlePointMasterCheck(s *Server) error {
 		}
 		log.Infof("after %d all az partitioning, former master is %s while new master is %s",
 			i+1, masterID, newMasterID)
-		log.Info("sleep 10 more second for change master")
-		time.Sleep(10 * time.Second)
+		log.Info("sleep 30 more second for change master")
+		time.Sleep(30 * time.Second)
 	}
 
 	// now the cluster enters the "SPM Mode"

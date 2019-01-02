@@ -32,7 +32,6 @@ import (
 	"github.com/coreos/etcd/clientv3"
 	"github.com/coreos/etcd/integration"
 	"github.com/juju/errors"
-	"gopkg.in/DATA-DOG/go-sqlmock.v1"
 	. "gopkg.in/check.v1"
 )
 
@@ -76,16 +75,24 @@ func SetUp() {
 	ctx, _ = context.WithCancel(context.TODO())
 	mockNode = &MockNode{client: etcdClient}
 
-	db, mock, err := sqlmock.New()
-	mockDB = db
-	if err != nil {
-		log.Error("error when mock mysql ", err)
+	mockServiceManager = &MockServiceManager{
+		masterStatus: &Position{
+			File: "mysql-bin.000005",
+			Pos:  "188858056",
+			GTID: "85ab69d1-b21f-11e6-9c5e-64006a8978d2:1-46",
+		},
+		serverUUID: "85ab69d1-b21f-11e6-9c5e-64006a8978d2",
+		slaveStatus: &Position{
+			File:            "mysql-bin.000005",
+			Pos:             "188858056",
+			GTID:            "85ab69d1-b21f-11e6-9c5e-64006a8978d2:1-46",
+			SlaveSQLRunning: true,
+			SlaveIORunning:  true,
+		},
+		masterUUID:   "85ab69d1-b21f-11e6-9c5e-64006a8978d2",
+		executedGTID: "85ab69d1-b21f-11e6-9c5e-64006a8978d2:1-46",
+		endTxnID:     47,
 	}
-	mock.ExpectQuery("SHOW MASTER STATUS").
-		WillReturnRows(sqlmock.
-			NewRows([]string{"File", "Position", "Binlog_Do_DB", "Binlog_Ignore_DB", "Executed_Gtid_Set"}).
-			AddRow("mysql-bin.000005", 188858056, "", "", "85ab69d1-b21f-11e6-9c5e-64006a8978d2:1-46"))
-	mockServiceManager = &MockServiceManager{}
 
 	mockCfg = &Config{
 		LeaderLeaseTTL:      10,
@@ -104,6 +111,10 @@ func SetUp() {
 	cfg.EtcdRootPath = "SetUpSuite"
 
 	s, err := NewServer(&cfg)
+	if err != nil {
+		log.Errorf("has error in init mock server: %v", err)
+		os.Exit(1)
+	}
 	err = s.node.RawClient().Put(s.ctx, "test_key", "test_value")
 
 	defer os.RemoveAll(cfg.DataDir)
@@ -114,20 +125,10 @@ func (t *testAgentServerSuite) TearDownSuite(c *C) {}
 
 func (t *testAgentServerSuite) TestUploadPromotionBinlog(c *C) {
 
-	db, mock, err := sqlmock.New()
-	c.Assert(err, IsNil)
-	mock.ExpectQuery("SHOW SLAVE STATUS").
-		WillReturnRows(sqlmock.
-			NewRows([]string{"Relay_Master_Log_File", "Exec_Master_Log_Pos", "Executed_Gtid_Set"}).
-			AddRow("mysql-bin.000005", 188858056, "85ab69d1-b21f-11e6-9c5e-64006a8978d2:1-46"))
-	mock.ExpectQuery("SHOW SLAVE STATUS").
-		WillReturnRows(sqlmock.NewRows([]string{}).AddRow())
 	s := newMockServer()
 	defer os.RemoveAll(s.cfg.DataDir)
 
-	s.db = db
-
-	err = s.uploadPromotionBinlog()
+	err := s.uploadPromotionBinlog()
 	log.Warn("error is ", err)
 	c.Assert(err, IsNil)
 
@@ -155,7 +156,6 @@ func (t *testAgentServerSuite) TestSetReadOnly(c *C) {
 	s := newMockServer()
 	s.isLeader = 1
 	s.leaderStopCh = make(chan interface{})
-	s.db = mockDB
 	defer os.RemoveAll(s.cfg.DataDir)
 	s.SetReadOnly(w, nil)
 	c.Assert(string(w.content), Equals, "set current node readonly success\n")
@@ -171,7 +171,6 @@ func (t *testAgentServerSuite) TestSetReadWrite(c *C) {
 	s := newMockServer()
 	s.isLeader = 1
 	s.leaderStopCh = make(chan interface{})
-	s.db = mockDB
 	defer os.RemoveAll(s.cfg.DataDir)
 	s.SetReadWrite(w, nil)
 	c.Assert(string(w.content), Equals, "set current node readwrite success\n")
@@ -183,54 +182,39 @@ func (t *testAgentServerSuite) TestSetReadWrite(c *C) {
 }
 
 func (t *testAgentServerSuite) TestUpdateBinlogPosAsMaster(c *C) {
-	db, mock, err := sqlmock.New()
-	c.Assert(err, IsNil)
-	mock.ExpectQuery("SELECT @@server_uuid").
-		WillReturnRows(sqlmock.
-			NewRows([]string{"@@server_uuid"}).
-			AddRow("53ea0ed1-9bf8-11e6-8bea-64006a897c73"))
-	mock.ExpectQuery("SHOW MASTER STATUS").
-		WillReturnRows(sqlmock.
-			NewRows([]string{"File", "Position", "Binlog_Do_DB", "Binlog_Ignore_DB", "Executed_Gtid_Set"}).
-			AddRow("mysql-bin.000005", 188858056, "", "", "85ab69d1-b21f-11e6-9c5e-64006a8978d2:1-46"))
 
 	s := newMockServer()
 	s.setIsLeaderToTrue()
 	defer os.RemoveAll(s.cfg.DataDir)
-	s.db = db
 
-	err = s.loadUUID()
+	err := s.loadUUID()
 	log.Error("error is ", err)
 	c.Assert(err, IsNil)
 	err = s.updateBinlogPos()
 	log.Error("error is ", err)
 	c.Assert(err, IsNil)
 
-	c.Assert(latestPos.UUID, Equals, "53ea0ed1-9bf8-11e6-8bea-64006a897c73")
+	c.Assert(latestPos.UUID, Equals, "85ab69d1-b21f-11e6-9c5e-64006a8978d2")
 	c.Assert(latestPos.File, Equals, "mysql-bin.000005")
 	c.Assert(latestPos.Pos, Equals, "188858056")
 	c.Assert(latestPos.GTID, Equals, "85ab69d1-b21f-11e6-9c5e-64006a8978d2:1-46")
 }
 
 func (t *testAgentServerSuite) TestUpdateBinlogPosAsSlave(c *C) {
-	db, mock, err := sqlmock.New()
-	c.Assert(err, IsNil)
-	mock.ExpectQuery("SELECT @@server_uuid").
-		WillReturnRows(sqlmock.
-			NewRows([]string{"@@server_uuid"}).
-			AddRow("53ea0ed1-9bf8-11e6-8bea-64006a897c73"))
-	mock.ExpectQuery("SHOW SLAVE STATUS").
-		WillReturnRows(sqlmock.
-			NewRows([]string{"Relay_Master_Log_File", "Exec_Master_Log_Pos", "Executed_Gtid_Set",
-				"Master_UUID", "IO_Thread", "SQL_Thread"}).
-			AddRow("mysql-bin.000005", 188858056, "85ab69d1-b21f-11e6-9c5e-64006a8978d2:1-46",
-				"85ab69d1-b21f-11e6-9c5e-64006a8978d2", "Yes", "Yes"))
 	s := newMockServer()
 	s.setIsLeaderToFalse()
 	defer os.RemoveAll(s.cfg.DataDir)
-	s.db = db
 
-	err = s.loadUUID()
+	sm, ok := s.serviceManager.(*MockServiceManager)
+	c.Assert(ok, Equals, true)
+	sm.masterStatus = &Position{
+		File: "mysql-bin.000005",
+		Pos:  "188858056",
+		GTID: "85ab69d1-b21f-11e6-9c5e-64006a8978d2:1-46",
+	}
+	sm.serverUUID = "53ea0ed1-9bf8-11e6-8bea-64006a897c73"
+
+	err := s.loadUUID()
 	c.Assert(err, IsNil)
 	err = s.updateBinlogPos()
 	log.Error("error is ", err)
@@ -266,7 +250,6 @@ func (t *testAgentServerSuite) TestLeaderLoopAsFollower(c *C) {
 	defer os.RemoveAll(s.cfg.DataDir)
 	s.node.RawClient().Put(ctx, leaderPath, "another_leader")
 
-	s.db = mockDB
 	s.leaderStopCh = make(chan interface{})
 
 	go func() {
@@ -392,20 +375,11 @@ func (t *testAgentServerSuite) TestDoChangeMasterIsFormerNotNew(c *C) {
 
 func (t *testAgentServerSuite) TestDoChangeMasterNotFormerIsNew(c *C) {
 
-	db, mock, err := sqlmock.New()
-	c.Assert(err, IsNil)
-
-	mock.ExpectQuery("SHOW SLAVE STATUS").
-		WillReturnRows(sqlmock.
-			NewRows([]string{"Relay_Master_Log_File", "Exec_Master_Log_Pos", "Executed_Gtid_Set"}).
-			AddRow("mysql-bin.000005", 188858056, "85ab69d1-b21f-11e6-9c5e-64006a8978d2:1-46"))
-
 	s := newMockServer()
 	defer os.RemoveAll(s.cfg.DataDir)
-	s.db = db
 	// condition 3: current node is not the former leader but is new leader
 	atomic.StoreInt32(&s.isLeader, 0)
-	err = s.node.RawClient().Put(s.ctx, leaderPath, leaderValue)
+	err := s.node.RawClient().Put(s.ctx, leaderPath, leaderValue)
 
 	c.Assert(err, IsNil)
 
@@ -538,16 +512,6 @@ func (t *testAgentServerSuite) TestPreCampaignAsSlave(c *C) {
 	s := newMockServer()
 	defer os.RemoveAll(s.cfg.DataDir)
 
-	db, mock, err := sqlmock.New()
-	c.Assert(err, IsNil)
-	mock.ExpectQuery("SHOW SLAVE STATUS").
-		WillReturnRows(sqlmock.
-			NewRows([]string{"Relay_Master_Log_File", "Exec_Master_Log_Pos", "Executed_Gtid_Set",
-				"Master_UUID", "IO_Thread", "SQL_Thread"}).
-			AddRow("mysql-bin.000005", 188858056, "85ab69d1-b21f-11e6-9c5e-64006a8978d2:1-46",
-				"85ab69d1-b21f-11e6-9c5e-64006a8978d2", "Yes", "Yes"))
-	s.db = db
-
 	s.cfg.CampaignWaitTime = 1 * time.Second
 
 	var electionLog LogForElection
@@ -555,6 +519,7 @@ func (t *testAgentServerSuite) TestPreCampaignAsSlave(c *C) {
 	electionLog.LastUUID = s.lastUUID
 	electionLog.LastGTID = s.lastGTID
 	bs, err := json.Marshal(electionLog)
+	c.Assert(err, IsNil)
 	s.node.RawClient().Put(s.ctx, join(electionPath, "nodes", "another_agent"), string(bs))
 
 	startTime := time.Now()
@@ -570,7 +535,6 @@ func (t *testAgentServerSuite) TestStartBinlogMonitorLoop(c *C) {
 
 	s := newMockServer()
 	defer os.RemoveAll(s.cfg.DataDir)
-	s.db = mockDB
 
 	go func() {
 		defer func() {
@@ -589,7 +553,6 @@ func (t *testAgentServerSuite) TestStartWriteFDLoop(c *C) {
 
 	s := newMockServer()
 	defer os.RemoveAll(s.cfg.DataDir)
-	s.db = mockDB
 
 	go func() {
 		defer func() {
@@ -639,7 +602,13 @@ func (n *MockNode) NodeStatus(ctx context.Context, nodeID string) (*NodeStatus, 
 	}, nil
 }
 
-type MockServiceManager struct{}
+type MockServiceManager struct {
+	slaveStatus              *Position
+	masterStatus             *Position
+	masterUUID, executedGTID string
+	endTxnID                 uint64
+	serverUUID               string
+}
 
 func (m *MockServiceManager) SetReadOnly() error {
 	return nil
@@ -670,6 +639,22 @@ func (m *MockServiceManager) WaitCatchMaster(gtid string) chan interface{} {
 	r := make(chan interface{})
 	close(r)
 	return r
+}
+
+func (m *MockServiceManager) LoadSlaveStatusFromDB() (*Position, error) {
+	return m.slaveStatus, nil
+}
+func (m *MockServiceManager) LoadMasterStatusFromDB() (*Position, error) {
+	return m.masterStatus, nil
+}
+func (m *MockServiceManager) LoadReplicationInfoOfMaster() (masterUUID, executedGTID string, etid uint64, err error) {
+	return m.masterUUID, m.executedGTID, m.endTxnID, nil
+}
+func (m *MockServiceManager) LoadReplicationInfoOfSlave() (masterUUID, executedGTID string, etid uint64, err error) {
+	return m.masterUUID, m.executedGTID, m.endTxnID, nil
+}
+func (m *MockServiceManager) GetServerUUID() (string, error) {
+	return m.serverUUID, nil
 }
 
 type MockResponseWriter struct {

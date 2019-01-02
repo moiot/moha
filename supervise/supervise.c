@@ -25,9 +25,6 @@
 
 #include "log.h"
 
-// TODO(shangliang) open log and replace printf
-
-
 #define handle_error(msg) \
     do { perror(msg); exit(EXIT_FAILURE); } while (0)
 
@@ -39,7 +36,8 @@
 #define FD_PARAM 10
 #define PASSWORD_PARAM 128
 
-int _epollfd, _eventfd, _childpid;
+int _epollfd, _eventfd, _agentpid, _servicepid = 0;
+uint64_t _u;
 
 int init_logger() {
     log_set_filename("/agent/log/supervise.log");
@@ -66,6 +64,7 @@ int init() {
 }
 
 int destroy() {
+    log_info("begin to destroy!");
     close(_eventfd);
     close(_epollfd);
 
@@ -117,11 +116,14 @@ static void sig_handler_child(int sig) {
         r, WEXITSTATUS(status));
     if (r == 2) {
         destroy();
-    } else if (r > 0) {
+        return;
+    } else if (r == 1) {
         log_info("handle child exit from sig handler");
         if (handle_child_exit(status) < 0) {
             destroy();
         }
+    } else {
+        log_info("ignore child exit from sig handler");
     }
 }
 
@@ -154,7 +156,7 @@ void run_child() {
 int handle_child_exit(int status) {
     int exit_status = WEXITSTATUS(status);
     log_info("child %d exited with status %d, WIFEXITED(status) is %d",
-        _childpid, exit_status, WIFEXITED(status));
+        _agentpid, exit_status, WIFEXITED(status));
     if (WIFEXITED(status) && (exit_status == 0 || exit_status == 3)) {
         log_info("child exits as expected with return code %d, "\
             "supervise exit as well",
@@ -168,16 +170,17 @@ int handle_child_exit(int status) {
     if (ret == 0) {
         run_child();
     } else {
-        _childpid = ret;
+        _agentpid = ret;
     }
     return 0;
 }
 
 // wait_child_pid gets the child processes running status
-// return 0 if _childpid is still alive
+// return 0 if _agentpid is still alive
 // return -1 id error occurs
-// return 1 if child process of pid _childpid exits
-// return 2 if some other child exits
+// return 1 if child process of pid _agentpid exits
+// return 2 if adopted service process exits
+// return 3 if any other process exits
 int wait_child_pid(int* status) {
     while (1) {
         int cpid = waitpid(-1, status, WNOHANG);
@@ -189,12 +192,18 @@ int wait_child_pid(int* status) {
             // Error
             log_error("waitpid error, errno is %d", errno);
             return -1;
-        } else if (cpid != _childpid) {
-           log_info("receive child %d exits, not %s", cpid, CHILD_PROCESS);
-           return 2;
-        } else {
+        } else if (cpid == _agentpid) {
             // Child exited
+            log_info("receive child %d exits, %s", cpid, CHILD_PROCESS);
             return 1;
+        } else if (cpid == _servicepid) {
+            // Child exitedsupervise/supervise.c:121
+            log_info("receive child %d exits, service", cpid);
+            return 2;
+        } else {
+            log_info("receive child %d exits, not %s nor service. ignore",
+                cpid, CHILD_PROCESS);
+            return 3;
         }
     }
 }
@@ -210,6 +219,26 @@ int detect_child_alive(int epoll_timeout) {
     struct epoll_event evnts[EVENTS];
     int count = epoll_wait(_epollfd, evnts, EVENTS, epoll_timeout);
     log_info("epoll_wait returns %d count", count);
+
+    int i;
+    for (i = 0; i < count; ++i) {
+        struct epoll_event *e = evnts + i;
+        if (e->data.fd == _eventfd) {
+            eventfd_t val;
+            eventfd_read(_eventfd, &val);
+            // log_info("receive eventfd value: %lld\n", (long long)val);
+            if (val > 1) {
+                int spid = (uint64_t)val>>32;
+                if (spid > 0) {
+                    _servicepid = spid;
+                    log_info(" receive eventfd, with service pid: %lld\n",
+                        _servicepid);
+                }
+            }
+            break;
+        }
+    }
+
     if (count == -1) {
         if (errno != EINTR) {
             log_error("epoll_wait error with errno: %d", errno);
@@ -240,21 +269,11 @@ void run_server() {
             if (r == 0) {
                 log_info("%s is still alive, from wait_child_pid, maybe hung",
                     CHILD_PROCESS);
-//                log_info("try force kill child process %d with %d",
-//                    _childpid, SIGKILL);
-//                if (kill(_childpid, SIGKILL) != 0) {
-//                    log_error("error when killing %d with %d, errno is %d",
-//                        _childpid, SIGKILL, errno);
-//                }
-//                int s;
-//                log_info("waitpid until %d exits", _childpid);
-//                int cpid = waitpid(_childpid, &s, 0);
-//                log_info("waitpid return cpid %d and status %d", cpid, s);
-//                if (cpid > 0 && handle_child_exit(s) < 0) {
-//                    return;
-//                }
                 log_info("supervise exit");
                 return;
+            } else if (r == 2) {
+                destroy();
+                // continue;
             } else if (r > 0) {
                 log_info("%s exits, from wait_child_pid", CHILD_PROCESS);
                 if (handle_child_exit(status) < 0) {
@@ -276,7 +295,7 @@ int main(int argc, char *argv[]) {
     if (ret == 0) {
         run_child();
     } else {
-        _childpid = ret;
+        _agentpid = ret;
         if (detect_child_alive(CHILD_INIT_WAIT) < 0) {
             destroy();
             return 0;

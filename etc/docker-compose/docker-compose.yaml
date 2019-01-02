@@ -56,7 +56,8 @@ services:
       MYSQL_SOCKET: /tmp/mysql.sock
       MYSQL_PID_FILE: /tmp/mysql.pid
   mysql-test-3:
-    build: ./agent
+    # build: ./agent
+    image: moiot/moha:v2-latest
     depends_on:
     - etcd0
     - etcd1

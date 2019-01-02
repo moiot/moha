@@ -14,10 +14,8 @@
 package agent
 
 import (
-	"encoding/json"
-
 	"context"
-
+	"encoding/json"
 	"strings"
 
 	"git.mobike.io/database/mysql-agent/pkg/log"
@@ -32,43 +30,36 @@ type LogForElection struct {
 	Term     uint64 `json:"term"`
 	LastUUID string `json:"last_uuid"`
 	LastGTID string `json:"last_gtid"`
+	EndTxnID uint64 `json:"end_txn_id"`
+
+	// Version is the schema version of LogForElection, used for backward compatibility
+	Version int `json:"version"`
 }
 
 func (s *Server) loadSlaveLogFromMySQL() error {
-	rSet, err := mysql.GetSlaveStatus(s.db)
+	masterUUID, executedGTID, endTxnID, err := s.serviceManager.LoadReplicationInfoOfSlave()
 	if err != nil {
-		return errors.Trace(err)
+		return err
 	}
-	if rSet["Master_UUID"] == "" {
-		log.Warn("do not have Master_UUID, this node is not a former slave, "+
-			"it may be the initialization of this cluster, slave status is ", rSet)
-		return errors.Errorf("do not have Master_UUID, this node is not a former slave, "+
-			"it may be the initialization of this cluster, slave status is %+v", rSet)
-	}
-	s.lastUUID = rSet["Master_UUID"]
-	s.lastGTID = rSet["Executed_Gtid_Set"]
+	s.lastUUID = masterUUID
+	s.lastGTID = executedGTID
+	s.lastTxnID = endTxnID
 	return nil
 }
 
 func (s *Server) loadMasterLogFromMySQL() error {
-	_, gtidSet, err := mysql.GetMasterStatus(s.db)
+	masterUUID, executedGTID, endTxnID, err := s.serviceManager.LoadReplicationInfoOfMaster()
 	if err != nil {
-		return errors.Trace(err)
+		return err
 	}
-	uuid, err := mysql.GetServerUUID(s.db)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	s.lastUUID = uuid
-	s.lastGTID = gtidSet.String()
+	s.lastUUID = masterUUID
+	s.lastGTID = executedGTID
+	s.lastTxnID = endTxnID
 	return nil
 }
 
-func (s *Server) uploadLogForElection() error {
-	var electionLog LogForElection
-	electionLog.Term = s.term + 1
-	electionLog.LastUUID = s.lastUUID
-	electionLog.LastGTID = s.lastGTID
+func (s *Server) uploadLogForElection(electionLog LogForElection) error {
+
 	key := join(electionPath, "nodes", s.node.ID())
 	latestPosJSONBytes, err := json.Marshal(electionLog)
 	if err != nil {
@@ -79,19 +70,40 @@ func (s *Server) uploadLogForElection() error {
 }
 
 func (s *Server) uploadLogForElectionAsSlave() error {
-	err := s.loadSlaveLogFromMySQL()
-	if err != nil {
-		return errors.Trace(err)
+	masterUUID, executedGTID, endTxnID, err := s.serviceManager.LoadReplicationInfoOfSlave()
+	electionLog := LogForElection{
+		Version: globalSchemaVersion,
 	}
-	return s.uploadLogForElection()
+	if err != nil {
+		electionLog.Term = s.term + 1
+		electionLog.EndTxnID = 0
+	}
+	s.lastUUID = masterUUID
+	s.lastGTID = executedGTID
+	s.lastTxnID = endTxnID
+	electionLog.Term = s.term + 1
+	electionLog.LastUUID = masterUUID
+	electionLog.LastGTID = executedGTID
+	electionLog.EndTxnID = endTxnID
+	return s.uploadLogForElection(electionLog)
 }
 
 func (s *Server) uploadLogForElectionAsFormerMaster() error {
-	err := s.loadMasterLogFromMySQL()
+	masterUUID, executedGTID, endTxnID, err := s.serviceManager.LoadReplicationInfoOfMaster()
+	electionLog := LogForElection{
+		Version: globalSchemaVersion,
+	}
 	if err != nil {
 		return errors.Trace(err)
 	}
-	return s.uploadLogForElection()
+	s.lastUUID = masterUUID
+	s.lastGTID = executedGTID
+	s.lastTxnID = endTxnID
+	electionLog.Term = s.term + 1
+	electionLog.LastUUID = masterUUID
+	electionLog.LastGTID = executedGTID
+	electionLog.EndTxnID = endTxnID
+	return s.uploadLogForElection(electionLog)
 }
 
 // getAllLogsForElection retrieves all election logs from etcd
@@ -152,6 +164,15 @@ func (s *Server) isLatestLog(logs map[string]LogForElection) (isLatest bool, isS
 		// if current agent compares gtid with another agent, it means that they are of the same term,
 		// and as a consequence, they are neither not single point
 		isSinglePoint = false
+
+		// compare EndTxnID first
+		if logForElection.Version >= 2 {
+			if uint64(endTnxID) < logForElection.EndTxnID {
+				return false, false
+			}
+			continue
+		}
+
 		// TODO uuid check?
 		anotherTxnID, err := mysql.GetTxnIDFromGTIDStr(logForElection.LastGTID, logForElection.LastUUID)
 		if err != nil {

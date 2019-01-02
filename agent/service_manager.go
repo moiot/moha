@@ -15,11 +15,13 @@ package agent
 
 import (
 	"database/sql"
-
+	"fmt"
+	"strconv"
 	"time"
 
 	"git.mobike.io/database/mysql-agent/pkg/log"
 	"git.mobike.io/database/mysql-agent/pkg/mysql"
+	"git.mobike.io/database/mysql-agent/pkg/types"
 	"github.com/juju/errors"
 )
 
@@ -33,14 +35,53 @@ type ServiceManager interface {
 	PromoteToMaster() error
 	// RedirectMaster make a slave point to another master
 	RedirectMaster(masterHost, masterPort string) error
-	// WaitForRunningProcesses block until running processes are done, or are killed after timeout seconds
-	WaitForRunningProcesses(timeout int) error
-	// WaitCatchMaster returns a channel which is closed when current service catches the given gtid
-	WaitCatchMaster(gtid string) chan interface{}
 	// SetReadOnlyManually sets service readonly, but only executed manually
 	SetReadOnlyManually() (bool, error)
 
+	LoadSlaveStatusFromDB() (*Position, error)
+	LoadMasterStatusFromDB() (*Position, error)
+	LoadReplicationInfoOfMaster() (masterUUID, executedGTID string, endTxnID uint64, err error)
+	LoadReplicationInfoOfSlave() (masterUUID, executedGTID string, endTxnID uint64, err error)
+	GetServerUUID() (string, error)
+
 	Close() error
+}
+
+// NewMySQLServiceManager returns the instance of mysqlServiceManager
+func NewMySQLServiceManager(dbConfig types.DBConfig, timeout time.Duration) (ServiceManager, error) {
+	// try to connect MySQL
+	var db *sql.DB
+	var err error
+	startTime := time.Now()
+	for true {
+		if time.Now().Sub(startTime) > timeout {
+			log.Errorf("timeout to connect to MySQL by user %s", dbConfig.User)
+			return nil, errors.Errorf("timeout to connect to MySQL by user %s", dbConfig.User)
+		}
+		db, err = mysql.CreateDB(dbConfig)
+		if err != nil {
+			log.Errorf("fail to connect MySQL in agent start: %+v", err)
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+		err = mysql.Select1(db)
+		if err != nil {
+			log.Errorf("fail to select 1 from MySQL in agent start: %+v", err)
+			db.Close()
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+		break
+	}
+	log.Info("db is successfully connected and select 1 is OK")
+	// init ServiceManager
+	sm := &mysqlServiceManager{
+		db:                  db,
+		mysqlNet:            dbConfig.ReplicationNet,
+		replicationUser:     dbConfig.ReplicationUser,
+		replicationPassword: dbConfig.ReplicationPassword,
+	}
+	return sm, nil
 }
 
 type mysqlServiceManager struct {
@@ -100,37 +141,128 @@ func (m *mysqlServiceManager) Close() error {
 	return mysql.CloseDB(m.db)
 }
 
-func (m *mysqlServiceManager) WaitCatchMaster(gtid string) chan interface{} {
-	r := make(chan interface{})
-	go func() {
-		err := mysql.WaitCatchMaster(m.db, gtid)
+func (m *mysqlServiceManager) LoadMasterStatusFromDB() (*Position, error) {
+	pos, gtidSet, err := mysql.GetMasterStatus(m.db)
+	if err != nil {
+		// error in getting MySQL binlog position
+		// TODO change alive status or retry
+		return nil, err
+	}
+	currentPos := &Position{}
+
+	currentPos.File = pos.Name
+	currentPos.Pos = fmt.Sprint(pos.Pos)
+	currentPos.GTID = gtidSet.String()
+	if uuid, err := mysql.GetServerUUID(m.db); err == nil {
+		currentPos.UUID = uuid
+		// assume the gtidset is continuous, only pick the last one
+		endTxnID, err := mysql.GetTxnIDFromGTIDStr(currentPos.GTID, uuid)
 		if err != nil {
-			log.Warn("error when WaitCatchMaster ", err)
+			log.Warnf("error when GetTxnIDFromGTIDStr gtidStr: %s, gtid: %s, error is %v",
+				currentPos.GTID, uuid, err)
+			return nil, errors.Errorf("error when GetTxnIDFromGTIDStr gtidStr: %s, gtid: %s, error is %v",
+				currentPos.GTID, uuid, err)
 		}
-		close(r)
-	}()
-	return r
+		currentPos.EndTxnID = uint64(endTxnID)
+	} else {
+		return nil, errors.Errorf("fail to get server UUID %v", err)
+	}
+
+	return currentPos, nil
 }
 
-func (m *mysqlServiceManager) WaitForRunningProcesses(timeout int) error {
+func (m *mysqlServiceManager) LoadSlaveStatusFromDB() (*Position, error) {
+	rSet, err := mysql.GetSlaveStatus(m.db)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	if rSet["Relay_Master_Log_File"] == "" {
+		log.Warn("do not have Relay_Master_Log_File, this node is not a former slave, "+
+			"it may be the initialization of this cluster, slave status is ", rSet)
+		return nil, errors.New("do not have Relay_Master_Log_File")
+	}
+	currentPos := &Position{}
+	currentPos.File = rSet["Relay_Master_Log_File"]
+	currentPos.Pos = rSet["Exec_Master_Log_Pos"]
+	currentPos.GTID = rSet["Executed_Gtid_Set"]
+	currentPos.UUID = latestPos.UUID
 
-	pids, err := mysql.GetRunningProcesses(m.db)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	if len(pids) == 0 {
-		return nil
-	}
-	time.Sleep(time.Duration(timeout) * time.Second)
-	pids, err = mysql.GetRunningProcesses(m.db)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	for _, pid := range pids {
-		err = mysql.KillProcess(m.db, pid)
+	// Seconds_Behind_Master value loading
+	if rSet["Seconds_Behind_Master"] == "" {
+		log.Errorf("Seconds_Behind_Master is empty, show slave status result is %+v", rSet)
+	} else {
+		sbm, err := strconv.Atoi(rSet["Seconds_Behind_Master"])
 		if err != nil {
-			log.Warn("[ignore] error when killing pid ", pid, err)
+			log.Warnf("has error in atoi Seconds_Behind_Master: %s. still use previous value: %d. error is %+v",
+				rSet["Seconds_Behind_Master"], latestPos.SecondsBehindMaster, err)
+			currentPos.SecondsBehindMaster = latestPos.SecondsBehindMaster
+		} else {
+			currentPos.SecondsBehindMaster = sbm
 		}
 	}
-	return nil
+
+	if rSet["Slave_SQL_Running"] == "Yes" {
+		currentPos.SlaveSQLRunning = true
+	} else {
+		currentPos.SlaveSQLRunning = false
+	}
+	if rSet["Slave_IO_Running"] == "Yes" {
+		currentPos.SlaveIORunning = true
+	} else {
+		currentPos.SlaveIORunning = false
+	}
+
+	if rSet["Master_UUID"] != "" {
+		// assume the gtidset is continuous, only pick the last one
+		endTxnID, err := mysql.GetTxnIDFromGTIDStr(currentPos.GTID, rSet["Master_UUID"])
+		if err != nil {
+			log.Warnf("error when GetTxnIDFromGTIDStr gtidStr: %s, gtid: %s, error is %v",
+				currentPos.GTID, rSet["Master_UUID"], err)
+			return nil, errors.Errorf("error when GetTxnIDFromGTIDStr gtidStr: %s, gtid: %s, error is %v",
+				currentPos.GTID, rSet["Master_UUID"], err)
+		}
+		currentPos.EndTxnID = uint64(endTxnID)
+	}
+
+	return currentPos, nil
+}
+
+func (m *mysqlServiceManager) LoadReplicationInfoOfSlave() (masterUUID, executedGTID string, endTxnID uint64, err error) {
+	rSet, err := mysql.GetSlaveStatus(m.db)
+	if err != nil {
+		return masterUUID, executedGTID, endTxnID, errors.Trace(err)
+	}
+	if rSet["Master_UUID"] == "" {
+		log.Warn("do not have Master_UUID, this node is not a former slave, "+
+			"it may be the initialization of this cluster, slave status is ", rSet)
+		return masterUUID, executedGTID, endTxnID, errors.Errorf("do not have Master_UUID, "+
+			"this node is not a former slave, it may be the initialization of this cluster, slave status is %+v", rSet)
+	}
+	endTxnIDInt64, err := mysql.GetTxnIDFromGTIDStr(rSet["Executed_Gtid_Set"], rSet["Master_UUID"])
+	if err != nil {
+		return masterUUID, executedGTID, endTxnID, errors.Trace(err)
+	}
+
+	return rSet["Master_UUID"], rSet["Executed_Gtid_Set"], uint64(endTxnIDInt64), nil
+}
+
+func (m *mysqlServiceManager) LoadReplicationInfoOfMaster() (masterUUID, executedGTID string, endTxnID uint64, err error) {
+	_, gtidSet, err := mysql.GetMasterStatus(m.db)
+	if err != nil {
+		return masterUUID, executedGTID, endTxnID, errors.Trace(err)
+	}
+	uuid, err := mysql.GetServerUUID(m.db)
+	if err != nil {
+		return masterUUID, executedGTID, endTxnID, errors.Trace(err)
+	}
+	endTxnIDInt64, err := mysql.GetTxnIDFromGTIDStr(gtidSet.String(), uuid)
+	if err != nil {
+		return masterUUID, executedGTID, endTxnID, errors.Trace(err)
+	}
+
+	return uuid, gtidSet.String(), uint64(endTxnIDInt64), nil
+}
+
+func (m *mysqlServiceManager) GetServerUUID() (string, error) {
+	return mysql.GetServerUUID(m.db)
 }

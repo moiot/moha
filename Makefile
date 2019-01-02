@@ -36,12 +36,14 @@ agent:
 	$(GOBUILD) -ldflags '$(LDFLAGS)' -o bin/mysql-agent cmd/mysql-agent/main.go
 	$(GOBUILD) -ldflags '$(LDFLAGS)' -o bin/mysql-agent-tear-down cmd/mysql-agent-tear-down/main.go
 	$(GOBUILD) -ldflags '$(LDFLAGS)' -o bin/mysql-agent-service-boot cmd/mysql-agent-service-boot/main.go
+	$(GOBUILD) -ldflags '$(LDFLAGS)' -o bin/mysql-agent-service-boot-daemon cmd/mysql-agent-service-boot-daemon/main.go
 
 docker-agent:
 	mkdir -p bin/
 	docker run --rm -v `pwd`:/usr/src/myapp -w /usr/src/myapp docker.mobike.io/databases/gcc:8.1.0 gcc -o bin/supervise supervise/*.c
 	docker run --rm -v `pwd`:/go/src/git.mobike.io/database/mysql-agent -w /go/src/git.mobike.io/database/mysql-agent docker.mobike.io/databases/golang:1.11.0 make agent
 	cp bin/* etc/docker-compose/agent/
+	cp bin/* etc/docker-compose/postgresql/
 
 checker:
 	$(GOBUILD) -ldflags '$(LDFLAGS)' -o bin/mysql-agent-checker cmd/mysql-agent-checker/main.go

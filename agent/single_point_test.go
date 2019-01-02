@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/juju/errors"
-	"gopkg.in/DATA-DOG/go-sqlmock.v1"
 	. "gopkg.in/check.v1"
 )
 
@@ -61,18 +60,8 @@ func (t *testAgentServerSuite) TestResumeLeaderAsSinglePoint(c *C) {
 }
 
 func (t *testAgentServerSuite) TestBecomeSinglePointMaster(c *C) {
-
-	db, mock, err := sqlmock.New()
-	c.Assert(err, IsNil)
-	mock.ExpectQuery("SHOW SLAVE STATUS").
-		WillReturnRows(sqlmock.
-			NewRows([]string{"Relay_Master_Log_File", "Exec_Master_Log_Pos", "Executed_Gtid_Set",
-				"Master_UUID", "IO_Thread", "SQL_Thread"}).
-			AddRow("mysql-bin.000005", 188858056, "85ab69d1-b21f-11e6-9c5e-64006a8978d2:1-46",
-				"85ab69d1-b21f-11e6-9c5e-64006a8978d2", "Yes", "Yes"))
 	s := newMockServer()
 	defer os.RemoveAll(s.cfg.DataDir)
-	s.db = db
 
 	s.term = 5
 

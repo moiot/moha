@@ -19,7 +19,7 @@ import (
 	"os"
 	"time"
 
-	"git.mobike.io/database/mysql-agent/pkg/mysql"
+	"git.mobike.io/database/mysql-agent/pkg/types"
 	"github.com/BurntSushi/toml"
 	"github.com/juju/errors"
 )
@@ -71,7 +71,8 @@ type Config struct {
 	LogMaxDays  int    `toml:"log-max-days" json:"log-max-days"`
 	LogCompress bool   `toml:"log-compress" json:"log-compress"`
 
-	DBConfig mysql.DBConfig `toml:"db-config" json:"db-config"`
+	ServiceType string         `toml:"service-type" json:"service-type"`
+	DBConfig    types.DBConfig `toml:"db-config" json:"db-config"`
 
 	InternalServiceHost string `toml:"internal-service-host" json:"internal-service-host"`
 	ExternalServiceHost string `toml:"external-service-host" json:"external-service-host"`

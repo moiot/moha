@@ -19,9 +19,7 @@ import (
 
 	"git.mobike.io/database/mysql-agent/pkg/log"
 	"git.mobike.io/database/mysql-agent/pkg/mysql"
-
 	"gopkg.in/DATA-DOG/go-sqlmock.v1"
-
 	. "gopkg.in/check.v1"
 )
 
@@ -59,4 +57,11 @@ func (s *testMySQLSuite) TestGetMasterStatus(c *C) {
 	c.Assert(gtid.Sets["85ab69d1-b21f-11e6-9c5e-64006a8978d2"].Intervals, HasLen, 2)
 	c.Assert(gtid.Sets["85ab69d1-b21f-11e6-9c5e-64006a8978d2"].Intervals[0].Start, Equals, int64(1))
 	c.Assert(gtid.Sets["85ab69d1-b21f-11e6-9c5e-64006a8978d2"].Intervals[0].Stop, Equals, int64(47))
+}
+
+func (s *testMySQLSuite) TestGetTxnIDFromGTIDStr(c *C) {
+	txnID, err := mysql.GetTxnIDFromGTIDStr("dde19958-0296-11e9-99b2-0242ac130008:0", "dde19958-0296-11e9-99b2-0242ac130008")
+	c.Assert(err, IsNil)
+	c.Assert(txnID, Equals, int64(1))
+
 }

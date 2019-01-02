@@ -19,7 +19,7 @@ import (
 	"os"
 	"time"
 
-	"git.mobike.io/database/mysql-agent/pkg/mysql"
+	"git.mobike.io/database/mysql-agent/pkg/types"
 	"github.com/BurntSushi/toml"
 	"github.com/juju/errors"
 )
@@ -49,7 +49,7 @@ type Config struct {
 	LogFile   string `toml:"log-file" json:"log-file"`
 	LogRotate string `toml:"log-rotate" json:"log-rotate"`
 
-	DBConfig     mysql.DBConfig `toml:"db-config" json:"db-config"`
+	DBConfig     types.DBConfig `toml:"db-config" json:"db-config"`
 	RootUser     string         `toml:"root-user" json:"user"`
 	RootPassword string         `toml:"root-password" json:"password"`
 

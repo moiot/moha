@@ -25,6 +25,6 @@ import (
 // to write the value 0xffffffffffffffff.
 func WriteToEventfd(fd int, value uint64) (int, error) {
 	b := make([]byte, 8)
-	binary.LittleEndian.PutUint64(b, uint64(1))
+	binary.LittleEndian.PutUint64(b, value)
 	return syscall.Write(fd, b)
 }

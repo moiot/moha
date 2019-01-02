@@ -91,7 +91,6 @@ func (t *testAgentServerSuite) TestKeepLeaderAlive(c *C) {
 		node:           mockNode,
 		serviceManager: mockServiceManager,
 		leaseExpireTS:  time.Now().Add(1 * time.Minute).Unix(),
-		db:             mockDB,
 	}
 
 	lr, err := mockClient.Grant(ctx, 10)

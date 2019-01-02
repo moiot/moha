@@ -16,15 +16,18 @@ package main
 import (
 	_ "net/http/pprof"
 	"os"
+	"strconv"
 	"syscall"
 
 	"git.mobike.io/database/mysql-agent/agent"
 	"git.mobike.io/database/mysql-agent/pkg/log"
+	"git.mobike.io/database/mysql-agent/pkg/systemcall"
 )
 
 func main() {
 	cfg := agent.NewConfig()
-	if err := cfg.Parse(os.Args[1:]); err != nil {
+	fd, _ := strconv.Atoi(os.Args[1])
+	if err := cfg.Parse(os.Args[2:]); err != nil {
 		log.Fatalf("verifying flags error, %v. See '%s --help'", err, agent.DefaultName)
 	}
 	log.Info("service-boot init logger")
@@ -42,7 +45,9 @@ func main() {
 	if err != nil {
 		log.Error("error while ForkExec , error is ", err)
 	}
-	log.Info("service-boot forked child pid is ", cpid)
+	log.Info("service-boot forked child pid is ", cpid,
+		" write to fd ", fd, " with value ", uint64(cpid)<<32)
+	systemcall.WriteToEventfd(fd, uint64(cpid)<<32)
 	log.Infof("service-boot process with pid %d exits", syscall.Getpid())
 	os.Exit(0)
 

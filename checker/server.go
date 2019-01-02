@@ -26,6 +26,7 @@ import (
 	"git.mobike.io/database/mysql-agent/pkg/etcd"
 	"git.mobike.io/database/mysql-agent/pkg/log"
 	"git.mobike.io/database/mysql-agent/pkg/mysql"
+	"git.mobike.io/database/mysql-agent/pkg/types"
 	"github.com/juju/errors"
 )
 
@@ -263,7 +264,7 @@ func (s *Server) buildDBConnFromID(leaderID string) (*sql.DB, error) {
 	} else {
 		p, _ = strconv.Atoi(hs[1])
 	}
-	dbConfig := mysql.DBConfig{
+	dbConfig := types.DBConfig{
 		Host:     hs[0],
 		User:     s.cfg.DBConfig.User,
 		Password: s.cfg.DBConfig.Password,
@@ -282,7 +283,7 @@ func (s *Server) buildDBRootConnFromID(leaderID string) (*sql.DB, error) {
 	} else {
 		p, _ = strconv.Atoi(hs[1])
 	}
-	dbConfig := mysql.DBConfig{
+	dbConfig := types.DBConfig{
 		Host:     hs[0],
 		User:     s.cfg.RootUser,
 		Password: s.cfg.RootPassword,

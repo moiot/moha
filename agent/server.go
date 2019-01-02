@@ -15,7 +15,6 @@ package agent
 
 import (
 	"context"
-	"database/sql"
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
@@ -23,7 +22,6 @@ import (
 	"net/url"
 	"os"
 	"runtime/debug"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -34,6 +32,8 @@ import (
 	"github.com/juju/errors"
 	"github.com/prometheus/client_golang/prometheus"
 )
+
+const globalSchemaVersion = 2
 
 var (
 	// latestPos records the latest MySQL binlog of the agent works on.
@@ -76,15 +76,14 @@ type Server struct {
 	shutdownCh chan interface{}
 
 	//TODO term increment check
-	term     uint64
-	lastUUID string
-	lastGTID string
+	term      uint64
+	lastUUID  string
+	lastGTID  string
+	lastTxnID uint64
 
 	// uuid is the uuid of current MySQL
 	uuid       string
 	uuidRWLock sync.RWMutex
-
-	db *sql.DB
 
 	cfg *Config
 }
@@ -165,9 +164,9 @@ func (s *Server) Start() error {
 	// try to start(double fork and exec) a new mysql if current mysql is down
 	if !isPortAlive(s.cfg.DBConfig.Host, fmt.Sprint(s.cfg.DBConfig.Port)) {
 		log.Info("config file is ", s.cfg.configFile)
-		log.Info("mysql is not alive, try to start")
+		log.Info("service is not alive, try to start")
 		log.Info("double fork and exec ", s.cfg.ForkProcessFile, s.cfg.ForkProcessArgs)
-		err := systemcall.DoubleForkAndExecute(s.cfg.configFile)
+		err := systemcall.DoubleForkAndExecute(s.cfg.fd, s.cfg.configFile)
 		if err != nil {
 			log.Error("error while double fork ", s.cfg.ForkProcessFile, " error is ", err)
 			return errors.Trace(err)
@@ -175,49 +174,33 @@ func (s *Server) Start() error {
 		stopCh := make(chan interface{})
 		select {
 		case <-waitUtilPortAlive(s.cfg.DBConfig.Host, fmt.Sprint(s.cfg.DBConfig.Port), stopCh):
-			log.Info("mysql has been started")
+			log.Info("service has been started")
 			break
 		case <-time.After(time.Duration(s.cfg.ForkProcessWaitSecond) * time.Second):
 			stopCh <- "timeout"
 			return errors.New("cannot start mysql, timeout")
 		}
 	} else {
-		log.Info("mysql is alive, according to port alive detection")
+		log.Info("service is alive, according to port alive detection")
 	}
-	log.Info("mysql fork done, try to connect")
+	log.Info("service fork done, try to connect")
 
-	// try to connect MySQL
-	var db *sql.DB
-	startTime := time.Now()
-	for true {
-		if time.Now().Sub(startTime) > time.Duration(s.cfg.ForkProcessWaitSecond)*time.Second {
-			log.Errorf("timeout to connect to MySQL by user %s", s.cfg.DBConfig.User)
-			return errors.Errorf("timeout to connect to MySQL by user %s", s.cfg.DBConfig.User)
-		}
-		db, err = mysql.CreateDB(s.cfg.DBConfig)
-		if err != nil {
-			log.Errorf("fail to connect MySQL in agent start: %+v", err)
-			time.Sleep(100 * time.Millisecond)
-			continue
-		}
-		err = mysql.Select1(db)
-		if err != nil {
-			log.Errorf("fail to select 1 from MySQL in agent start: %+v", err)
-			db.Close()
-			time.Sleep(100 * time.Millisecond)
-			continue
-		}
-		break
+	// init service manager by config
+	var sm ServiceManager
+	if s.cfg.ServiceType == "" {
+		s.cfg.ServiceType = "mysql"
 	}
-	log.Info("db is successfully connected and select 1 is OK")
-	s.db = db
-
-	// init ServiceManager
-	sm := &mysqlServiceManager{
-		db:                  s.db,
-		mysqlNet:            s.cfg.DBConfig.ReplicationNet,
-		replicationUser:     s.cfg.DBConfig.ReplicationUser,
-		replicationPassword: s.cfg.DBConfig.ReplicationPassword,
+	switch s.cfg.ServiceType {
+	case "mysql":
+		sm, err = NewMySQLServiceManager(s.cfg.DBConfig, time.Duration(s.cfg.ForkProcessWaitSecond)*time.Second)
+		if err != nil {
+			return errors.Trace(err)
+		}
+	case "postgresql":
+		sm, err = NewPostgreSQLServiceManager(s.cfg.DBConfig, time.Duration(s.cfg.ForkProcessWaitSecond)*time.Second)
+		if err != nil {
+			return errors.Trace(err)
+		}
 	}
 	s.serviceManager = sm
 
@@ -378,18 +361,18 @@ func (s *Server) startBinlogMonitorLoop() {
 }
 
 func (s *Server) updateBinlogPos() error {
-
-	var gtidStr, masterUUID string
+	var pos *Position
+	var err error
 	if s.amILeader() {
-		pos, gtidSet, err := mysql.GetMasterStatus(s.db)
+		pos, err = s.serviceManager.LoadMasterStatusFromDB()
 		if err != nil {
 			// error in getting MySQL binlog position
 			// TODO change alive status or retry
 			return err
 		}
-		latestPos.File = pos.Name
+		latestPos.File = pos.File
 		latestPos.Pos = fmt.Sprint(pos.Pos)
-		latestPos.GTID = gtidSet.String()
+		latestPos.GTID = pos.GTID
 
 		latestPos.SecondsBehindMaster = 0
 		latestPos.SlaveIORunning = false
@@ -398,57 +381,36 @@ func (s *Server) updateBinlogPos() error {
 		// below are monitor logic
 		agentSlaveStatus.With(prometheus.Labels{"cluster_name": s.cfg.ClusterName, "type": "sql_thread"}).Set(0)
 		agentSlaveStatus.With(prometheus.Labels{"cluster_name": s.cfg.ClusterName, "type": "io_thread"}).Set(0)
-		gtidStr, masterUUID = latestPos.GTID, latestPos.UUID
 	} else {
-		rSet, err := mysql.GetSlaveStatus(s.db)
+		pos, err = s.serviceManager.LoadSlaveStatusFromDB()
 		if err != nil {
 			// error in getting MySQL binlog position
 			// TODO change alive status or retry
 			return errors.Trace(err)
 		}
-		latestPos.File = rSet["Relay_Master_Log_File"]
-		latestPos.Pos = rSet["Exec_Master_Log_Pos"]
-		latestPos.GTID = rSet["Executed_Gtid_Set"]
+		latestPos.File = pos.File
+		latestPos.Pos = pos.Pos
+		latestPos.GTID = pos.GTID
+		latestPos.SlaveSQLRunning = pos.SlaveSQLRunning
+		latestPos.SlaveIORunning = pos.SlaveIORunning
+		latestPos.SecondsBehindMaster = pos.SecondsBehindMaster
 
-		if rSet["Seconds_Behind_Master"] == "" {
-			log.Errorf("Seconds_Behind_Master is empty, show slave status result is %+v", rSet)
-		} else {
-			sbm, err := strconv.Atoi(rSet["Seconds_Behind_Master"])
-			if err != nil {
-				log.Warnf("has error in atoi Seconds_Behind_Master: %s. still use previous value: %d. error is %+v",
-					rSet["Seconds_Behind_Master"], latestPos.SecondsBehindMaster, err)
-			} else {
-				latestPos.SecondsBehindMaster = sbm
-			}
-		}
-
-		if rSet["Slave_SQL_Running"] == "Yes" {
-			latestPos.SlaveSQLRunning = true
+		if pos.SlaveSQLRunning {
 			agentSlaveStatus.With(prometheus.Labels{"cluster_name": s.cfg.ClusterName, "type": "sql_thread"}).Set(1)
 		} else {
-			latestPos.SlaveSQLRunning = false
 			agentSlaveStatus.With(prometheus.Labels{"cluster_name": s.cfg.ClusterName, "type": "sql_thread"}).Set(-1)
 		}
-		if rSet["Slave_IO_Running"] == "Yes" {
-			latestPos.SlaveIORunning = true
+		if pos.SlaveIORunning {
 			agentSlaveStatus.With(prometheus.Labels{"cluster_name": s.cfg.ClusterName, "type": "io_thread"}).Set(1)
 		} else {
-			latestPos.SlaveIORunning = false
 			agentSlaveStatus.With(prometheus.Labels{"cluster_name": s.cfg.ClusterName, "type": "io_thread"}).Set(-1)
 		}
-		gtidStr, masterUUID = rSet["Executed_Gtid_Set"], rSet["Master_UUID"]
 	}
 
-	if masterUUID != "" {
-		endTxnID, err := mysql.GetTxnIDFromGTIDStr(gtidStr, masterUUID)
-		if err != nil {
-			log.Warnf("error when GetTxnIDFromGTIDStr gtidStr: %s, gtid: %s, error is %v", gtidStr, masterUUID, err)
-			return nil
-		}
-		// assume the gtidset is continuous, only pick the last one
+	if pos.EndTxnID != 0 {
 		agentSlaveStatus.
 			With(prometheus.Labels{"cluster_name": s.cfg.ClusterName, "type": "executed_gtid"}).
-			Set(float64(endTxnID))
+			Set(float64(pos.EndTxnID))
 	}
 
 	return nil
@@ -496,6 +458,7 @@ func (s *Server) leaderLoop() {
 				s.term = leader.meta.term
 				s.lastGTID = leader.meta.lastGTID
 				s.lastUUID = leader.meta.lastUUID
+				s.lastTxnID = leader.meta.lastTxnID
 				if leader.spm == s.node.ID() {
 					// resume single point master mode
 					log.Info("leader's spm is current node ID, so resume spm mode")
@@ -541,13 +504,14 @@ func (s *Server) leaderLoop() {
 					return
 				}
 				log.Info("current server is no later than master, so watch master")
-				log.Infof("leader is %v, watch it", leader)
+				log.Infof("leader is %+v, watch it", leader)
 				err = s.doChangeMaster(leader)
 				if err != nil {
 					log.Error("error while slave redirects master, goto leader loop start point ", err)
 					time.Sleep(100 * time.Millisecond)
 					continue
 				}
+				log.Infof("begin to watch leader %+v.", leader)
 				err = s.watchLeader(leader.kv.ModRevision)
 				if err != nil {
 					log.Info("try to watch leader with the latest revision")
@@ -748,7 +712,7 @@ func (s *Server) amILeader() bool {
 func (s *Server) loadUUID() error {
 	s.uuidRWLock.Lock()
 	defer s.uuidRWLock.Unlock()
-	uuid, err := mysql.GetServerUUID(s.db)
+	uuid, err := s.serviceManager.GetServerUUID()
 	if err != nil {
 		return err
 	}
@@ -833,32 +797,30 @@ func (s *Server) promoteToMaster() error {
 	// stop io/sql thread
 	agentSlaveStatus.With(prometheus.Labels{"cluster_name": s.cfg.ClusterName, "type": "sql_thread"}).Set(0)
 	agentSlaveStatus.With(prometheus.Labels{"cluster_name": s.cfg.ClusterName, "type": "io_thread"}).Set(0)
-	s.serviceManager.PromoteToMaster()
+	log.Info("current node promote to master")
+	err := s.serviceManager.PromoteToMaster()
+	if err != nil {
+		log.Error("has error when promoting to master. ", err)
+	}
 	// upload current mysql binlog info
-	err := s.uploadPromotionBinlog()
+	err = s.uploadPromotionBinlog()
 	if err != nil {
 		log.Error("has error when upload position during master promotion, "+
 			"info may be inconsistent ", err)
 	}
-	return s.serviceManager.SetReadWrite()
+	err = s.serviceManager.SetReadWrite()
+	if err != nil {
+		log.Error("has error when set read-write. ", err)
+	}
+	return err
 }
 
 // TODO move to service manager to decouple mysql and agent
 func (s *Server) uploadPromotionBinlog() error {
-	rSet, err := mysql.GetSlaveStatus(s.db)
+	currentPos, err := s.serviceManager.LoadSlaveStatusFromDB()
 	if err != nil {
 		return errors.Trace(err)
 	}
-	if rSet["Relay_Master_Log_File"] == "" {
-		log.Warn("do not have Relay_Master_Log_File, this node is not a former slave, "+
-			"it may be the initialization of this cluster, slave status is ", rSet)
-		return nil
-	}
-	var currentPos Position
-	currentPos.File = rSet["Relay_Master_Log_File"]
-	currentPos.Pos = rSet["Exec_Master_Log_Pos"]
-	currentPos.GTID = rSet["Executed_Gtid_Set"]
-	currentPos.UUID = latestPos.UUID
 	// key := join("switch", fmt.Sprint(time.Now().Unix()), s.node.ID())
 	key := join("switch", fmt.Sprint(s.term-1), s.node.ID())
 	latestPosJSONBytes, err := json.Marshal(currentPos)
@@ -894,6 +856,7 @@ func (s *Server) preCampaign(isFormerMaster bool) (isSinglePoint bool) {
 	// wait for consuming relay log
 	log.Infof("enter preCampaign as the former master? %v", isFormerMaster)
 	time.Sleep(s.cfg.CampaignWaitTime)
+	// TODO add stop sql thread
 	if isFormerMaster {
 		s.uploadLogForElectionAsFormerMaster()
 	} else {
@@ -967,33 +930,46 @@ func (s *Server) preWatch(leader *Leader) (err error) {
 	}
 	log.Infof("s.lastUUID is %s and leader is %+v", s.lastUUID, leader)
 
+	// now check the logIndex
+	if leader.meta.version >= 2 {
+		// version  >= 2, then use lastTxnID to compare
+		if leader.meta.lastTxnID < s.lastTxnID {
+			log.Errorf("current server %s has later TxnID: %d vs %d . leader: %+v ",
+				s.node.ID(), s.lastTxnID, leader.meta.lastTxnID, leader)
+			return errors.NotValidf("current server %s has later TxnID: %s vs %s . leader: %+v ",
+				s.node.ID(), s.lastTxnID, leader.meta.lastTxnID, leader)
+		}
+	} else {
+		// if leader is of older version, use uuid and gtid to compare
+		if s.lastUUID != leader.meta.lastUUID {
+			log.Errorf("current server %s has different leader UUID: %s vs %s ",
+				s.node.ID(), s.lastUUID, leader.meta.lastUUID)
+			return errors.NotValidf("current server %s has different leader UUID: %s vs %s ",
+				s.node.ID(), s.lastUUID, leader.meta.lastUUID)
+		}
+		myTxnID, err := mysql.GetTxnIDFromGTIDStr(s.lastGTID, s.lastUUID)
+		if err != nil {
+			log.Errorf("error when extract myTxnID")
+			return errors.Trace(err)
+		}
+		latestTxnID, err := mysql.GetTxnIDFromGTIDStr(leader.meta.lastGTID, leader.meta.lastUUID)
+		if err != nil {
+			log.Errorf("error when extract leader's latestTxnID")
+			return errors.Trace(err)
+		}
+		if latestTxnID < myTxnID {
+			log.Errorf("current server %s has later GTID: %s vs %s . leader: %+v ",
+				s.node.ID(), s.lastGTID, leader.meta.lastGTID, leader)
+			return errors.NotValidf("current server %s has later GTID: %s vs %s . leader: %+v ",
+				s.node.ID(), s.lastGTID, leader.meta.lastGTID, leader)
+		}
+	}
+	// if all checks passed, s.term is assigned to leader's term
 	if s.term == leader.meta.term-1 {
 		s.term = leader.meta.term
 	} else {
 		// this situation is s.term is greater than leader.meta.term, which should not happen, so log it
 		log.Errorf("current node has term %d while leader has term %d", s.term, leader.meta.term)
-	}
-	if s.lastUUID != leader.meta.lastUUID {
-		log.Errorf("current server %s has different leader UUID: %s vs %s ",
-			s.node.ID(), s.lastUUID, leader.meta.lastUUID)
-		return errors.NotValidf("current server %s has different leader UUID: %s vs %s ",
-			s.node.ID(), s.lastUUID, leader.meta.lastUUID)
-	}
-	myTxnID, err := mysql.GetTxnIDFromGTIDStr(s.lastGTID, s.lastUUID)
-	if err != nil {
-		log.Errorf("error when extract myTxnID")
-		return errors.Trace(err)
-	}
-	latestTxnID, err := mysql.GetTxnIDFromGTIDStr(leader.meta.lastGTID, leader.meta.lastUUID)
-	if err != nil {
-		log.Errorf("error when extract leader's latestTxnID")
-		return errors.Trace(err)
-	}
-	if latestTxnID < myTxnID {
-		log.Errorf("current server %s has later GTID: %s vs %s . leader: %+v ",
-			s.node.ID(), s.lastGTID, leader.meta.lastGTID, leader)
-		return errors.NotValidf("current server %s has later GTID: %s vs %s . leader: %+v ",
-			s.node.ID(), s.lastGTID, leader.meta.lastGTID, leader)
 	}
 	// TODO add logic: if current gtid is ahead master gtid, then deregister current node
 	return nil
