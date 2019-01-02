@@ -17,10 +17,10 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/moiot/moha/pkg/log"
-	"github.com/moiot/moha/pkg/types"
 	_ "github.com/go-sql-driver/mysql" // import mysql for side-effects
 	"github.com/juju/errors"
+	"github.com/moiot/moha/pkg/log"
+	"github.com/moiot/moha/pkg/types"
 	gmysql "github.com/siddontang/go-mysql/mysql"
 )
 

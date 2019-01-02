@@ -15,12 +15,11 @@ package agent
 
 import (
 	"context"
-
 	"time"
 
-	"github.com/moiot/moha/pkg/log"
 	"github.com/coreos/etcd/clientv3"
 	"github.com/juju/errors"
+	"github.com/moiot/moha/pkg/log"
 )
 
 var spmPath = "single_point_master"

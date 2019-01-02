@@ -20,10 +20,10 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/juju/errors"
 	"github.com/moiot/moha/pkg/etcd"
 	"github.com/moiot/moha/pkg/file"
 	"github.com/moiot/moha/pkg/log"
-	"github.com/juju/errors"
 )
 
 const (

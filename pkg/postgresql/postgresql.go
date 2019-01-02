@@ -4,9 +4,9 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/moiot/moha/pkg/types"
 	"github.com/juju/errors"
 	_ "github.com/lib/pq" // import pq for side-effects
+	"github.com/moiot/moha/pkg/types"
 )
 
 // CreateDB creates db connection using the cfg

@@ -20,8 +20,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/moiot/moha/pkg/log"
 	"github.com/juju/errors"
+	"github.com/moiot/moha/pkg/log"
 )
 
 // ChaosRegistry registers chaos situation

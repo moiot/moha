@@ -19,10 +19,10 @@ import (
 	"path"
 	"time"
 
-	"github.com/moiot/moha/pkg/etcd"
-	"github.com/moiot/moha/pkg/log"
 	"github.com/coreos/etcd/clientv3"
 	"github.com/juju/errors"
+	"github.com/moiot/moha/pkg/etcd"
+	"github.com/moiot/moha/pkg/log"
 )
 
 const (

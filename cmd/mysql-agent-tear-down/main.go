@@ -14,20 +14,14 @@
 package main
 
 import (
-	"os"
-
 	"io/ioutil"
-
-	"syscall"
-
+	"os"
 	"strconv"
-
 	"strings"
-
+	"syscall"
 	"time"
 
 	"github.com/moiot/moha/agent"
-
 	"github.com/moiot/moha/pkg/log"
 )
 

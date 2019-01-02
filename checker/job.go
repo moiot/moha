@@ -15,7 +15,6 @@ package checker
 
 import (
 	"database/sql"
-
 	"time"
 
 	"github.com/moiot/moha/pkg/log"

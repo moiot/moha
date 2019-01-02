@@ -18,9 +18,9 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/juju/errors"
 	"github.com/moiot/moha/pkg/log"
 	"github.com/moiot/moha/pkg/mysql"
-	"github.com/juju/errors"
 )
 
 const electionPath = "election"

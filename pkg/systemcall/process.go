@@ -19,8 +19,8 @@ import (
 	"runtime"
 	"syscall"
 
-	"github.com/moiot/moha/pkg/log"
 	"github.com/juju/errors"
+	"github.com/moiot/moha/pkg/log"
 )
 
 // DoubleForkAndExecute fork current process twice and runs syscall.Exec

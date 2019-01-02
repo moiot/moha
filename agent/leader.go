@@ -20,10 +20,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/moiot/moha/pkg/log"
 	"github.com/coreos/etcd/clientv3"
 	"github.com/coreos/etcd/mvcc/mvccpb"
 	"github.com/juju/errors"
+	"github.com/moiot/moha/pkg/log"
 )
 
 var (

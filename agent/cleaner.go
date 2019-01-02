@@ -16,10 +16,10 @@ package agent
 import (
 	"context"
 
-	"github.com/moiot/moha/pkg/etcd"
-	"github.com/moiot/moha/pkg/log"
 	"github.com/coreos/etcd/clientv3"
 	"github.com/juju/errors"
+	"github.com/moiot/moha/pkg/etcd"
+	"github.com/moiot/moha/pkg/log"
 )
 
 // StartClean should be invoked by another process when agent exits with status code 3,

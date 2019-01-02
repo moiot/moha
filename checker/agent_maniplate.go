@@ -14,23 +14,19 @@
 package checker
 
 import (
+	"bytes"
 	"database/sql"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
+	"os/exec"
+	"path"
+	"strings"
 	"time"
 
-	"os/exec"
-
-	"bytes"
-	"io"
-
-	"strings"
-
-	"path"
-
-	"github.com/moiot/moha/pkg/log"
 	"github.com/juju/errors"
+	"github.com/moiot/moha/pkg/log"
 )
 
 func (s *Server) runChangeMaster() error {

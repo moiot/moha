@@ -17,8 +17,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/moiot/moha/pkg/types"
 	"github.com/juju/errors"
+	"github.com/moiot/moha/pkg/types"
 )
 
 // URLsValue is an alias of URLs.

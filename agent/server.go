@@ -26,10 +26,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/juju/errors"
 	"github.com/moiot/moha/pkg/log"
 	"github.com/moiot/moha/pkg/mysql"
 	"github.com/moiot/moha/pkg/systemcall"
-	"github.com/juju/errors"
 	"github.com/prometheus/client_golang/prometheus"
 )
 

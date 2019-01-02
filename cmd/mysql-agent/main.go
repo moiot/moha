@@ -14,17 +14,15 @@
 package main
 
 import (
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"net/http"
-	_ "net/http/pprof"
-
 	"github.com/moiot/moha/agent"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-
 	"github.com/moiot/moha/pkg/log"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func main() {

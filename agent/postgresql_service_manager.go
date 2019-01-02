@@ -10,11 +10,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/juju/errors"
 	"github.com/moiot/moha/pkg/log"
 	"github.com/moiot/moha/pkg/mysql"
 	"github.com/moiot/moha/pkg/postgresql"
 	"github.com/moiot/moha/pkg/types"
-	"github.com/juju/errors"
 )
 
 const redirectTemplate = `standby_mode = 'on'
