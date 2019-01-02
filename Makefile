@@ -16,7 +16,7 @@ GOCHECKER := $(GOFILTER) | awk '{ print } END { if (NR > 0) { exit 1 } }'
 CPPLINT := cpplint --quiet --filter=-readability/casting,-build/include_subdir
 CFILES := supervise/*.c
 
-DOCKER-COMPOSE := docker-compose -p mysqlagent -f etc/docker-compose/docker-compose.yaml
+DOCKER-COMPOSE := docker-compose -p moha -f etc/docker-compose/docker-compose.yaml
 
 PACKAGES := $$(go list ./...| grep -vE 'vendor|cmd')
 FILES    := $$(find . -name '*.go' -type f | grep -vE 'vendor')
@@ -201,16 +201,16 @@ demo:
 
 clean-data:
 	@ $(DOCKER-COMPOSE) rm -vsf || true
-	@ docker volume rm mysqlagent_mysql-node-1-data || true
-	@ docker volume rm mysqlagent_mysql-node-2-data || true
-	@ docker volume rm mysqlagent_mysql-node-3-data || true
-	@ docker volume rm mysqlagent_etcd0 || true
-	@ docker volume rm mysqlagent_etcd1 || true
-	@ docker volume rm mysqlagent_etcd2 || true
-	@ docker volume rm mysqlagent_etcd3 || true
-	@ docker volume rm mysqlagent_etcd4 || true
-	@ docker volume rm mysqlagent_pmm-data-prometheus || true
-	@ docker volume rm mysqlagent_pmm-data-mysql || true
-	@ docker volume rm mysqlagent_pmm-data-grafana || true
-	@ docker volume rm mysqlagent_pmm-data-consul || true
+	@ docker volume rm moha_mysql-node-1-data || true
+	@ docker volume rm moha_mysql-node-2-data || true
+	@ docker volume rm moha_mysql-node-3-data || true
+	@ docker volume rm moha_etcd0 || true
+	@ docker volume rm moha_etcd1 || true
+	@ docker volume rm moha_etcd2 || true
+	@ docker volume rm moha_etcd3 || true
+	@ docker volume rm moha_etcd4 || true
+	@ docker volume rm moha_pmm-data-prometheus || true
+	@ docker volume rm moha_pmm-data-mysql || true
+	@ docker volume rm moha_pmm-data-grafana || true
+	@ docker volume rm moha_pmm-data-consul || true
 
