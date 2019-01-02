@@ -1,30 +1,30 @@
-# mysql-agent
+# MoHA
 
-通过自动的 master 失败检测和秒级的主从切换，mysql-agent 提供了跨数据中心的 MySQL 集群的高可用（HA）。它的特点包括：
+通过自动的 master 失败检测和秒级的主从切换，MoHA 提供了跨数据中心的 MySQL 集群的高可用（HA）。它的特点包括：
 
 
 - __高可用__
 
-    mysql-agent 对 MySQL 的失败检测和 failover 策略可以保证 MySQL 集群的高可用
+    MoHA 对 MySQL 的失败检测和 failover 策略可以保证 MySQL 集群的高可用
     
 - __无脑裂__
 
-    mysql-agent 采用 lease 机制，通过配置合理的 lease 长度，可以确保 MySQL 集群无脑裂
+    MoHA 采用 lease 机制，通过配置合理的 lease 长度，可以确保 MySQL 集群无脑裂
     
 - __跨数据中心__
 
-    mysql-agent 采用 etcd 实现服务的注册和发现，避免了 VIP 的局限，可以搭建跨数据中心的 MySQL 集群         
+    MoHA 采用 etcd 实现服务的注册和发现，避免了 VIP 的局限，可以搭建**跨数据中心**的 MySQL 集群         
  
 - __一主多从__
-    mysql-agent 支持搭建一主多从的 MySQL 集群，并且在 Failover 时会指定数据最新的从库作为新主
+    MoHA 支持搭建一主多从的 MySQL 集群，并且在 Failover 时会指定数据最新的从库作为新主
   
 - __单主模式__ 
-    在集群内只有一个 MySQL 节点存活时，即使 mysql-agent 与 etcd 通信中断，单节点 MySQL 依然可以提供服务。
+    在集群内只有一个 MySQL 节点存活时，即使 MoHA 与 etcd 通信中断，单节点 MySQL 依然可以提供服务。
     单主模式支持自动进入和自动退出 
      
 - __计划内的主从切换__
 
-    除了 master 节点不可用时自动触发的主从切换外，mysql-agent 也提供了计划内的手工触发主从切换功能  
+    除了 master 节点不可用时自动触发的主从切换外，MoHA 也提供了计划内的手工触发主从切换功能  
 
 __已在摩拜生产环境使用__
 
@@ -44,19 +44,26 @@ __已在摩拜生产环境使用__
 
 ### Quick Start
 
-#### 依赖
-- 构建与执行都依赖于 [Docker](https://www.docker.com/)。推荐安装最新版本的 Docker
-- 代码主要基于 golang 开发，请保证 golang 的版本大于等于 `1.9.2`
+
+#### 生产环境运行
+Docker image is already available on [Dockerhub](https://cloud.docker.com/u/moiot/repository/docker/moiot/moha)
+
+最新版本 `v2.4.0`，可执行 `docker pull moiot/moha:v2.4.0` 下载镜像
+ 
+配置文件与运行脚本见 [运维指导](docs/operation.md)
+
+**依赖**
+- 运行时依赖 [Docker](https://www.docker.com/)。推荐安装最新版本的 Docker
 - 运行时依赖 [etcd](https://coreos.com/etcd/)，建议 etcd 版本大于等于 3.3.2 
 
 #### 下载
 执行下面的命令下载代码
 ```bash
 cd $GOPATH
-mkdir -p src/git.mobike.io/database
-cd src/git.mobike.io/database
-git clone <remote_repo> mysql-agent
-cd mysql-agent
+mkdir -p src/github.com/moiot
+cd src/github.com/moiot
+git clone <remote_repo> moha
+cd moha
 ```
 
 #### 构建
@@ -64,24 +71,32 @@ cd mysql-agent
 ```make docker-image```
 编译代码并构建镜像。请确定本地的 Docker daemon 已经启动
 
+#### 开发与测试依赖
+- 构建依赖于 [Docker](https://www.docker.com/)。推荐安装最新版本的 Docker
+- 代码主要基于 golang 开发，请保证 golang 的版本大于等于 `1.9.2`，推荐 `1.11.0`
+- 运行时依赖 [etcd](https://coreos.com/etcd/)，建议 etcd 版本大于等于 `3.3.2`
+- 本地打包镜像时需要调用 [release.py](release.py) 脚本，建议 python 版本大于等于 `2.7.10`   
+
 #### 本地 Quick Start
 执行 `make demo` 就会在本地运行一主两从的包含 mysql-agent 的 MySQL 集群，端口分别为 3007、3008 和 3009。
 用户名/密码为 `root`/`master_root_pwd`
 在浏览器访问 `http://127.0.0.1:8080` 可以查看监控。
 
 #### 打包与上传镜像
-将 `$docker_image` 替换为镜像的 tag，执行下面的命令
+将 `$DOCKER_IMAGE` 替换为镜像的 tag，执行下面的命令
 ```bash
 make docker-agent
-docker build -t $docker_image ./etc/docker-compose/agent
-docker push $docker_image
-docker image rm $docker_image
+docker build -t $DOCKER_IMAGE ./etc/docker-compose/agent
+docker push $DOCKER_IMAGE
+docker image rm $DOCKER_IMAGE
 docker image prune -f
 ```
 
-#### 生产环境运行
-见 [运维指导](docs/operation.md)
+如果使用 `travis` 或 `gitlab pipeline` 作为持续集成，可以使用下面任一方法
+- `make tag` 生成 tag 为 `<branch>-<commit_hash>` 
+- `make release RELEASE-TAG=xxx` 可指定 tag 
 
+打包和上传镜像
 
 
 ### 文档
@@ -89,14 +104,14 @@ docker image prune -f
 - [架构设计](docs/design.md)
 - [详细设计](docs/detail.md)
 - [一主多从的选主](docs/multi_slaves.md)
-- [调整 lease 长度](docs/lease.md)
+- [通过调整 lease 长度来避免脑裂](docs/lease.md)
 - [单主模式](docs/spm.md)
 - [运维指导](docs/operation.md)
 - [测试与 benchmark](docs/benchmark.md)
 
 
-### Version 2.0 is on the Way!
-2.0 版本已经在生产环境使用，不久将开源。2.0 的功能包括：
+### Version 2 has been released
+Version 2 已经开源并在摩拜生产环境使用。Version 2 的功能包括：
 - 支持一主多从复制
 - 主从切换时会选择与 Master 数据一致的或最接近的 Slave 作为新主
 - 支持**单主模式（Single Point Master）**：当只有一个 MySQL 存活时，即使 Lease 续不上也不会停止写服务
@@ -112,3 +127,4 @@ This project is under the Apache 2.0 license. See the [LICENSE](LICENSE) file fo
 
 ### Acknowledgments
 * Thanks [rxi](https://github.com/rxi) for the lightweight log framework
+* Thanks [juju/errors](https://github.com/juju/errors) for the error handling framework

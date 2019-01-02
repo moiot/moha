@@ -2,9 +2,9 @@
 
 This document defines the development roadmap
 
-+ [ ] 支持一主多从的 MySQL 集群
-    - [ ] 一主多从选主亲和性
-    - [ ] 支持不参加选主的 Slave
++ [x] 支持一主多从的 MySQL 集群
+    - [x] 一主多从选主亲和性
+    - [x] 支持不参加选主的 Slave
     - [ ] 计划内主从切换优化
         - [ ] 计划内切换变成命令行工具
         - [ ] 优化计划内切换流程；增强用户交互性
@@ -23,4 +23,6 @@ This document defines the development roadmap
     - [ ] 各个文件中不包含明文密码；都按照相同加密格式处理
 
 + [ ] PaaS 化
-+ [ ] 多数派复制
++ [ ] 基于多数派的强一致复制
++ [ ] 扩展数据库类型 
+    - [x] 支持 `PostgreSQL` 
