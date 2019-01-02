@@ -40,7 +40,7 @@ jobs:
 
   - stage: publish
     if: tag IS present
-    env: DOCKER_IMAGE=$DOCKER_USERNAME/mysql-agent:$TRAVIS_TAG
+    env: DOCKER_IMAGE=$DOCKER_IMAGE:$TRAVIS_TAG
     install:
     - docker pull gcc:8.1.0
     - docker tag gcc:8.1.0 docker.mobike.io/databases/gcc:8.1.0
@@ -50,9 +50,10 @@ jobs:
     - docker build etc/mysql-image/5.7.22-pmm/ -t docker.mobike.io/databases/mysql:5.7.22-pmm
     script:
     - echo "$TRAVIS_BRANCH v.s $TRAVIS_TAG"
+    - echo "$DOCKER_IMAGE"
     - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
-    - docker build -t $DOCKER_USERNAME/mysql-agent:$TRAVIS_TAG ./etc/docker-compose/agent
-    - docker push $DOCKER_USERNAME/mysql-agent:$TRAVIS_TAG
-    - docker image rm $DOCKER_USERNAME/mysql-agent:$TRAVIS_TAG
+    - docker build -t $DOCKER_IMAGE ./etc/docker-compose/agent
+    - docker push $DOCKER_IMAGE
+    - docker image rm $DOCKER_IMAGE
     - docker image prune -f
 
