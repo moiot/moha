@@ -1,11 +1,13 @@
 ## 运维指导
 
-
-### 发版
-
 MoHA 的发布是基于 MySQL 的 docker 镜像，所以发布的是 `moiot/moha:<tag>` 的镜像格式
 
-#### 基础镜像配置
+目前最新版可通过 `docker pull moiot/moha:v2.4.0` 获取。
+使用公开发布的镜像可以跳过下面的**基础镜像配置**。
+
+### 基础镜像配置
+如果想在本地进行镜像打包，可以参考下面步骤。
+
 **第一次**打包镜像的时候需要执行下面命令，配置基础镜像
 ```bash
 docker pull gcc:8.1.0
@@ -39,6 +41,17 @@ docker build etc/mysql-image/5.7.22-pmm/ -t moiot/mysql:5.7.22-pmm
 * my.cnf MySQL 的配置文件
 
 即可。可以参考 [etc/docker-compose/deploy-example](../etc/docker-compose/deploy-example) 的例子。
+
+#### 单机房部署
+MoHA 支持单机房部署，下图是以一主一从两个 MySQL 为例。
+
+![1az](1az.png)
+
+#### 多机房部署
+MoHA 也支持多机房部署（多活架构），下图是以三个机房为例部署一主一从的 MySQL 集群。
+
+![3az](3az.png)
+
 
 #### 依赖
 agent 依赖 etcd，可以参考 [https://coreos.com/etcd/](https://coreos.com/etcd/) 

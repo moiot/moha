@@ -58,6 +58,13 @@ Docker image is already available on [Dockerhub](https://cloud.docker.com/u/moio
 - 运行时依赖 [Docker](https://www.docker.com/)。推荐安装最新版本的 Docker
 - 运行时依赖 [etcd](https://coreos.com/etcd/)，建议 etcd 版本大于等于 3.3.2 
 
+**单 AZ 架构**
+![1az](docs/1az.png)
+
+
+**多 AZ 架构**
+![3az](docs/3az.png)
+
 #### 下载
 执行下面的命令下载代码
 ```bash

@@ -52,6 +52,13 @@ config and start/stop scripts refers to [operation doc](docs/operation.md)
 - [etcd](https://coreos.com/etcd/) with version no earlier than 3.3.2 
 
 
+**One AZ Example**
+![1az](docs/1az.png)
+
+
+**Three AZs Example**
+![3az](docs/3az.png)
+
 #### Download Source Code
 
 ```bash
