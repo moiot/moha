@@ -1,16 +1,17 @@
-# mysql-agent
+# MoHA 架构设计
 
-mysql-agent 是 MySQL 的守护进程，其作用是配合 DBProxy、MySQL、etcd 实现 MySQL 数据库的同城双活高可用设计。
+### 设计目标
+MoHA 需要支持**单机房内部**和**多机房之间**的数据库集群的高可用。
 
-同城双活架构图如下：
+### 架构
 
-![同城双活架构](./architecture.png)
+![MoHA架构](./architecture.png)
 
 其中：
-- 北京一区和北京三区部署为主备关系的两套集群
-- 每个集群包括独立的LB、DBProxy、MySQL、Agent
-- 跨北京一区二区三区部署一个5副本的 etcd 集群，用于配合 Agent 做 MySQL 的主备切换
-- 业务通过 LB 接入本 AZ 内的一组 DBProxy，DBProxy 将业务对数据库的读写请求转发给 MySQL Master 节点，非强一致的只读请求可以转发给本 AZ 内的 MySQL Slave 节点。DBProxy 通过保持与 etcd 的连接，感知 MySQL 的主备变化。
+- 分布式 K/V 存储集群需要实现 serialise 级别的事务，这里使用的是 etcd。
+- 数据库被打包在容器中，容器里还包含一个 agent 守护进程，负责对数据库进行健康检查与控制。
+- agent 也负责将数据上传至 分布式 K/V 存储集群（etcd），可以通过订阅 etcd 来获取集群内最新的主节点。
+- 数据库直接提供复制与读写服务，不需通过 Agent。
 
 ### 功能
 
