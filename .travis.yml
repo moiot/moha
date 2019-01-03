@@ -14,11 +14,9 @@ jobs:
     - sudo pip install cpplint
     - make init
     - docker pull gcc:8.1.0
-    - docker tag gcc:8.1.0 docker.mobike.io/databases/gcc:8.1.0
     - docker pull golang:1.11.0
-    - docker tag golang:1.11.0 docker.mobike.io/databases/golang:1.11.0
-    - docker build etc/etcd-image/v3.3.2/ -t docker.mobike.io/databases/etcd:v3.3.2
-    - docker build etc/mysql-image/5.7.22-pmm/ -t docker.mobike.io/databases/mysql:5.7.22-pmm
+    - docker build etc/etcd-image/v3.3.2/ -t moiot/etcd:v3.3.2
+    - docker build etc/mysql-image/5.7.22-pmm/ -t moiot/mysql:5.7.22-pmm
     - REPOPWD=`pwd`
     - echo "current pwd is "$REPOPWD
     - echo "install pumba for chaos testing"
@@ -26,14 +24,14 @@ jobs:
     - mkdir -p src/github.com/alexei-led && cd src/github.com/alexei-led
     - git clone https://github.com/alexei-led/pumba.git
     - cd pumba
-    - docker build -t docker.mobike.io/databases/pumba:latest -f docker/Dockerfile .
+    - docker build -t moiot/pumba:latest -f docker/Dockerfile .
     - cd $REPOPWD
     - echo "current pwd is "`pwd`
     script:
     - make lint
     - make docker-agent
-    - docker run --rm --name make_test -v `pwd`:/go/src/git.mobike.io/database/mysql-agent -w /go/src/git.mobike.io/database/mysql-agent docker.mobike.io/databases/golang:1.11.0 make test
-    - docker build etc/mysql-image/5.7.22-pmm/ -t docker.mobike.io/databases/mysql:5.7.22-pmm
+    - docker run --rm --name make_test -v `pwd`:/go/src/github.com/moiot/moha -w /go/src/github.com/moiot/moha golang:1.11.0 make test
+    - docker build etc/mysql-image/5.7.22-pmm/ -t moiot/mysql:5.7.22-pmm
     - make integration-test || { tail -n 200 logs/mysql-*.log; sleep 10; exit 1; }
     after_failure:
     - make clean-data
@@ -43,11 +41,9 @@ jobs:
     env: DOCKER_IMAGE=$DOCKER_IMAGE:$TRAVIS_TAG
     install:
     - docker pull gcc:8.1.0
-    - docker tag gcc:8.1.0 docker.mobike.io/databases/gcc:8.1.0
     - docker pull golang:1.11.0
-    - docker tag golang:1.11.0 docker.mobike.io/databases/golang:1.11.0
     - make docker-agent
-    - docker build etc/mysql-image/5.7.22-pmm/ -t docker.mobike.io/databases/mysql:5.7.22-pmm
+    - docker build etc/mysql-image/5.7.22-pmm/ -t moiot/mysql:5.7.22-pmm
     script:
     - echo "$TRAVIS_BRANCH v.s $TRAVIS_TAG"
     - echo "$DOCKER_IMAGE"

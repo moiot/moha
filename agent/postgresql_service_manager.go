@@ -10,11 +10,11 @@ import (
 	"syscall"
 	"time"
 
-	"git.mobike.io/database/mysql-agent/pkg/log"
-	"git.mobike.io/database/mysql-agent/pkg/mysql"
-	"git.mobike.io/database/mysql-agent/pkg/postgresql"
-	"git.mobike.io/database/mysql-agent/pkg/types"
 	"github.com/juju/errors"
+	"github.com/moiot/moha/pkg/log"
+	"github.com/moiot/moha/pkg/mysql"
+	"github.com/moiot/moha/pkg/postgresql"
+	"github.com/moiot/moha/pkg/types"
 )
 
 const redirectTemplate = `standby_mode = 'on'

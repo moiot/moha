@@ -26,12 +26,12 @@ import (
 	"testing"
 	"time"
 
-	"git.mobike.io/database/mysql-agent/pkg/etcd"
-	"git.mobike.io/database/mysql-agent/pkg/log" // import for size-effect
 	_ "github.com/coreos/bbolt"
 	"github.com/coreos/etcd/clientv3"
 	"github.com/coreos/etcd/integration"
 	"github.com/juju/errors"
+	"github.com/moiot/moha/pkg/etcd"
+	"github.com/moiot/moha/pkg/log" // import for size-effect
 	. "gopkg.in/check.v1"
 )
 

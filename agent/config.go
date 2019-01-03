@@ -19,9 +19,9 @@ import (
 	"os"
 	"time"
 
-	"git.mobike.io/database/mysql-agent/pkg/types"
 	"github.com/BurntSushi/toml"
 	"github.com/juju/errors"
+	"github.com/moiot/moha/pkg/types"
 )
 
 const (

@@ -17,7 +17,7 @@ import (
 	"fmt"
 	"runtime"
 
-	"git.mobike.io/database/mysql-agent/pkg/log"
+	"github.com/moiot/moha/pkg/log"
 )
 
 var (

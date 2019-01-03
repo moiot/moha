@@ -53,7 +53,7 @@ services:
       REPLICATION_PASSWORD: "replication"
 
   etcd0:
-    image: 'docker.mobike.io/databases/etcd:v3.3.2'
+    image: 'moiot/etcd:v3.3.2'
     ports:
     - '32768:2379'
     volumes:
@@ -78,7 +78,7 @@ services:
     - '-initial-cluster'
     - 'etcd0=http://etcd0:2380,etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380,etcd4=http://etcd4:2380'
   etcd1:
-    image: 'docker.mobike.io/databases/etcd:v3.3.2'
+    image: 'moiot/etcd:v3.3.2'
     ports:
     - '32769:2379'
     volumes:
@@ -103,7 +103,7 @@ services:
     - '-initial-cluster'
     - 'etcd0=http://etcd0:2380,etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380,etcd4=http://etcd4:2380'
   etcd2:
-    image: 'docker.mobike.io/databases/etcd:v3.3.2'
+    image: 'moiot/etcd:v3.3.2'
     ports:
     - '32770:2379'
     volumes:
@@ -128,7 +128,7 @@ services:
     - '-initial-cluster'
     - 'etcd0=http://etcd0:2380,etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380,etcd4=http://etcd4:2380'
   etcd3:
-    image: 'docker.mobike.io/databases/etcd:v3.3.2'
+    image: 'moiot/etcd:v3.3.2'
     ports:
     - '32771:2379'
     volumes:
@@ -153,7 +153,7 @@ services:
     - '-initial-cluster'
     - 'etcd0=http://etcd0:2380,etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380,etcd4=http://etcd4:2380'
   etcd4:
-    image: 'docker.mobike.io/databases/etcd:v3.3.2'
+    image: 'moiot/etcd:v3.3.2'
     ports:
     - '32772:2379'
     volumes:

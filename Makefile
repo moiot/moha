@@ -1,4 +1,4 @@
-TOOLS_PKG := git.mobike.io/database/mysql-agent
+TOOLS_PKG := github.com/moiot/moha
 
 VERSION := $(shell git describe --tags --dirty)
 
@@ -16,7 +16,7 @@ GOCHECKER := $(GOFILTER) | awk '{ print } END { if (NR > 0) { exit 1 } }'
 CPPLINT := cpplint --quiet --filter=-readability/casting,-build/include_subdir
 CFILES := supervise/*.c
 
-DOCKER-COMPOSE := docker-compose -p mysqlagent -f etc/docker-compose/docker-compose.yaml
+DOCKER-COMPOSE := docker-compose -p moha -f etc/docker-compose/docker-compose.yaml
 
 PACKAGES := $$(go list ./...| grep -vE 'vendor|cmd')
 FILES    := $$(find . -name '*.go' -type f | grep -vE 'vendor')
@@ -40,8 +40,8 @@ agent:
 
 docker-agent:
 	mkdir -p bin/
-	docker run --rm -v `pwd`:/usr/src/myapp -w /usr/src/myapp docker.mobike.io/databases/gcc:8.1.0 gcc -o bin/supervise supervise/*.c
-	docker run --rm -v `pwd`:/go/src/git.mobike.io/database/mysql-agent -w /go/src/git.mobike.io/database/mysql-agent docker.mobike.io/databases/golang:1.11.0 make agent
+	docker run --rm -v `pwd`:/usr/src/myapp -w /usr/src/myapp gcc:8.1.0 gcc -o bin/supervise supervise/*.c
+	docker run --rm -v `pwd`:/go/src/github.com/moiot/moha -w /go/src/github.com/moiot/moha golang:1.11.0 make agent
 	cp bin/* etc/docker-compose/agent/
 	cp bin/* etc/docker-compose/postgresql/
 
@@ -49,7 +49,7 @@ checker:
 	$(GOBUILD) -ldflags '$(LDFLAGS)' -o bin/mysql-agent-checker cmd/mysql-agent-checker/main.go
 
 docker-checker:
-	docker run --rm -e GOOS=`uname | tr 'A-Z' 'a-z'` -v `pwd`:/go/src/git.mobike.io/database/mysql-agent -w /go/src/git.mobike.io/database/mysql-agent docker.mobike.io/databases/golang:1.11.0 bash -c "make checker"
+	docker run --rm -e GOOS=`uname | tr 'A-Z' 'a-z'` -v `pwd`:/go/src/github.com/moiot/moha -w /go/src/github.com/moiot/moha golang:1.11.0 bash -c "make checker"
 
 checker-test:
 	@ docker exec mysql-node-1 mysql -h 127.0.0.1 -P 3306 -u mysql_user -pmysql_master_user_pwd -e 'select 1' >/dev/null || true
@@ -120,7 +120,7 @@ tag:
 
 docker-image:
 	@ make docker-agent
-	@ docker build -t docker.mobike.io/databases/mysql-agent:$(TAG) ./etc/docker-compose/agent
+	@ docker build -t moiot/moha:$(TAG) ./etc/docker-compose/agent
 
 env-up:
 	@ echo "start etcd cluster"
@@ -201,16 +201,16 @@ demo:
 
 clean-data:
 	@ $(DOCKER-COMPOSE) rm -vsf || true
-	@ docker volume rm mysqlagent_mysql-node-1-data || true
-	@ docker volume rm mysqlagent_mysql-node-2-data || true
-	@ docker volume rm mysqlagent_mysql-node-3-data || true
-	@ docker volume rm mysqlagent_etcd0 || true
-	@ docker volume rm mysqlagent_etcd1 || true
-	@ docker volume rm mysqlagent_etcd2 || true
-	@ docker volume rm mysqlagent_etcd3 || true
-	@ docker volume rm mysqlagent_etcd4 || true
-	@ docker volume rm mysqlagent_pmm-data-prometheus || true
-	@ docker volume rm mysqlagent_pmm-data-mysql || true
-	@ docker volume rm mysqlagent_pmm-data-grafana || true
-	@ docker volume rm mysqlagent_pmm-data-consul || true
+	@ docker volume rm moha_mysql-node-1-data || true
+	@ docker volume rm moha_mysql-node-2-data || true
+	@ docker volume rm moha_mysql-node-3-data || true
+	@ docker volume rm moha_etcd0 || true
+	@ docker volume rm moha_etcd1 || true
+	@ docker volume rm moha_etcd2 || true
+	@ docker volume rm moha_etcd3 || true
+	@ docker volume rm moha_etcd4 || true
+	@ docker volume rm moha_pmm-data-prometheus || true
+	@ docker volume rm moha_pmm-data-mysql || true
+	@ docker volume rm moha_pmm-data-grafana || true
+	@ docker volume rm moha_pmm-data-consul || true
 

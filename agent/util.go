@@ -14,16 +14,14 @@
 package agent
 
 import (
-	"os"
-
-	"github.com/juju/errors"
-
 	"net"
+	"os"
 	"strings"
 	"time"
 
-	"git.mobike.io/database/mysql-agent/pkg/log"
 	"github.com/coreos/etcd/clientv3"
+	"github.com/juju/errors"
+	"github.com/moiot/moha/pkg/log"
 )
 
 // checkFileExist checks whether a file is exists and is a file.

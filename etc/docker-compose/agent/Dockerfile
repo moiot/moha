@@ -1,4 +1,4 @@
-FROM docker.mobike.io/databases/mysql:5.7.22-pmm
+FROM moiot/mysql:5.7.22-pmm
 COPY supervise /agent/supervise
 COPY mysql-agent /agent/mysql-agent
 COPY mysql-agent-tear-down /agent/mysql-agent-tear-down

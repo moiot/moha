@@ -11,7 +11,7 @@ compile:
 unit test:
   stage: test
   script:
-    - docker run --rm --name make_test -v `pwd`:/go/src/git.mobike.io/database/mysql-agent -w /go/src/git.mobike.io/database/mysql-agent docker.mobike.io/databases/golang:1.11.0 make test
+    - docker run --rm --name make_test -v `pwd`:/go/src/github.com/moiot/moha -w /go/src/github.com/moiot/moha golang:1.11.0 make test
 
 integration test:
   stage: test
@@ -23,8 +23,8 @@ integration test:
 release:
   stage: deploy
   variables:
-    docker_image: docker.mobike.io/databases/mysql-agent:$CI_COMMIT_TAG
-   # latest_image: docker.mobike.io/databases/mysql-agent:latest
+    docker_image: moiot/moha:$CI_COMMIT_TAG
+   # latest_image: moiot/moha:latest
   script:
     - make docker-agent
     - docker build -t $docker_image ./etc/docker-compose/agent

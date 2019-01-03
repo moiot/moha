@@ -20,10 +20,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"git.mobike.io/database/mysql-agent/pkg/etcd"
-	"git.mobike.io/database/mysql-agent/pkg/file"
-	"git.mobike.io/database/mysql-agent/pkg/log"
 	"github.com/juju/errors"
+	"github.com/moiot/moha/pkg/etcd"
+	"github.com/moiot/moha/pkg/file"
+	"github.com/moiot/moha/pkg/log"
 )
 
 const (

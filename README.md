@@ -68,3 +68,6 @@ make clean-data
 ### License
 This project is under the Apache 2.0 license. See the [LICENSE](LICENSE) file for details.
 
+### Acknowledgments
+* Thanks [rxi](https://github.com/rxi) for the lightweight log framework
+* Thanks [juju/errors](https://github.com/juju/errors) for the error handling framework

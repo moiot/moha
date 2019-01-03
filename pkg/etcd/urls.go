@@ -17,8 +17,8 @@ import (
 	"net/url"
 	"strings"
 
-	"git.mobike.io/database/mysql-agent/pkg/types"
 	"github.com/juju/errors"
+	"github.com/moiot/moha/pkg/types"
 )
 
 // URLsValue is an alias of URLs.

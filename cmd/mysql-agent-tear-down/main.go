@@ -14,21 +14,15 @@
 package main
 
 import (
-	"os"
-
 	"io/ioutil"
-
-	"syscall"
-
+	"os"
 	"strconv"
-
 	"strings"
-
+	"syscall"
 	"time"
 
-	"git.mobike.io/database/mysql-agent/agent"
-
-	"git.mobike.io/database/mysql-agent/pkg/log"
+	"github.com/moiot/moha/agent"
+	"github.com/moiot/moha/pkg/log"
 )
 
 func main() {

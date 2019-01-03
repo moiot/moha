@@ -19,10 +19,10 @@ import (
 	"strconv"
 	"time"
 
-	"git.mobike.io/database/mysql-agent/pkg/log"
-	"git.mobike.io/database/mysql-agent/pkg/mysql"
-	"git.mobike.io/database/mysql-agent/pkg/types"
 	"github.com/juju/errors"
+	"github.com/moiot/moha/pkg/log"
+	"github.com/moiot/moha/pkg/mysql"
+	"github.com/moiot/moha/pkg/types"
 )
 
 // ServiceManager defines some functions to manage service
