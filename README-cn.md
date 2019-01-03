@@ -16,9 +16,11 @@
     MoHA 采用 etcd 实现服务的注册和发现，避免了 VIP 的局限，可以搭建**跨数据中心**的 MySQL 集群         
  
 - __一主多从__
+
     MoHA 支持搭建一主多从的 MySQL 集群，并且在 Failover 时会指定数据最新的从库作为新主
   
 - __单主模式__ 
+
     在集群内只有一个 MySQL 节点存活时，即使 MoHA 与 etcd 通信中断，单节点 MySQL 依然可以提供服务。
     单主模式支持自动进入和自动退出 
      
@@ -78,7 +80,7 @@ cd moha
 - 本地打包镜像时需要调用 [release.py](release.py) 脚本，建议 python 版本大于等于 `2.7.10`   
 
 #### 本地 Quick Start
-执行 `make demo` 就会在本地运行一主两从的包含 mysql-agent 的 MySQL 集群，端口分别为 3007、3008 和 3009。
+执行 `make demo` 就会在本地运行一主两从的包含 MoHA 守护进程的 MySQL 集群，端口分别为 3007、3008 和 3009。
 用户名/密码为 `root`/`master_root_pwd`
 在浏览器访问 `http://127.0.0.1:8080` 可以查看监控。
 
@@ -128,3 +130,4 @@ This project is under the Apache 2.0 license. See the [LICENSE](LICENSE) file fo
 ### Acknowledgments
 * Thanks [rxi](https://github.com/rxi) for the lightweight log framework
 * Thanks [juju/errors](https://github.com/juju/errors) for the error handling framework
+* Thanks [yubai](http://oceanbase.org.cn/?p=41) for his Lease analysis
