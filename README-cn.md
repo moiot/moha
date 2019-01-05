@@ -1,4 +1,6 @@
-# MoHA
+![moha_logo](moha_logo.png)
+
+### 什么是 Mobike High Availability（MoHA）？
 
 通过自动的 master 失败检测和秒级的主从切换，MoHA 提供了跨数据中心的 MySQL 集群的高可用（HA）。它的特点包括：
 

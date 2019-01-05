@@ -1,8 +1,7 @@
-# MoHA
+![moha_logo](moha_logo.png)
 
-[中文文档](README-cn.md)
 
-### What is Mobike High Availability(MoHA)?
+### What is Mobike High Availability(MoHA)? [中文](README-cn.md)
 
 MoHA provides the high availability(HA) for cross-region MySQL clusters, 
 by automating master failover and fast master switch.
