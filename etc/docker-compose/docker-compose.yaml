@@ -209,7 +209,7 @@ services:
     - '-initial-cluster'
     - 'etcd0=http://etcd0:2380,etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380,etcd4=http://etcd4:2380'
   pmm-server:
-    image: 'moiot/pmm-server:1.13.0'
+    image: 'percona/pmm-server:1.13.0'
     ports:
     - '8080:80'
     - '3000:3000'

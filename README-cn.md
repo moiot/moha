@@ -79,15 +79,6 @@ cd moha
 
 #### 构建
 
-**第一次**构建镜像的时候需要执行下面命令，配置基础镜像
-```bash
-docker pull gcc:8.1.0
-docker pull golang:1.11.0
-docker pull quay.io/coreos/etcd:v3.3.2
-docker build etc/etcd-image/v3.3.2/ -t moiot/etcd:v3.3.2
-docker build etc/mysql-image/5.7.22-pmm/ -t moiot/mysql:5.7.22-pmm
-```
-
 在代码根目录下执行
 ```make docker-image```
 编译代码并构建镜像。请确定本地的 Docker daemon 已经启动
@@ -96,7 +87,16 @@ docker build etc/mysql-image/5.7.22-pmm/ -t moiot/mysql:5.7.22-pmm
 - 构建依赖于 [Docker](https://www.docker.com/)。推荐安装最新版本的 Docker
 - 代码主要基于 golang 开发，请保证 golang 的版本大于等于 `1.9.2`，推荐 `1.11.0`
 - 运行时依赖 [etcd](https://coreos.com/etcd/)，建议 etcd 版本大于等于 `3.3.2`
-- 本地打包镜像时需要调用 [release.py](release.py) 脚本，建议 python 版本大于等于 `2.7.10`   
+- 本地打包镜像时需要调用 [release.py](release.py) 脚本，建议 python 版本大于等于 `2.7.10` 
+
+此外，在本地**第一次**运行之前需要执行下面命令，配置基础镜像
+```bash
+docker pull gcc:8.1.0
+docker pull golang:1.11.0
+docker pull quay.io/coreos/etcd:v3.3.2
+docker build etc/etcd-image/v3.3.2/ -t moiot/etcd:v3.3.2
+docker build etc/mysql-image/5.7.22-pmm/ -t moiot/mysql:5.7.22-pmm
+```  
 
 #### 本地 Quick Start
 执行 `make demo` 就会在本地运行一主两从的包含 MoHA 守护进程的 MySQL 集群，端口分别为 3007、3008 和 3009。
