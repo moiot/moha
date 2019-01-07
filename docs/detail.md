@@ -34,7 +34,7 @@ MySQL agent 在整个双活中的作用主要有两个：
 
 *Q：为什么需要 supervise 进程，只有 agent 和 MySQL 进程不可以吗？*
 
-A：使用 supervise 进程主要有这几点好处
+A：使用 supervise 进程的好处
 
 - supervise 只负责启动 agent、进程探活与相应处理，这部分逻辑提取出来避免 agent 更加复杂
 - supervise 作为容器内 pid = 1 的进程，只要 supervise 结束，就可以确保容器内的 MySQL 肯定已经关闭。
