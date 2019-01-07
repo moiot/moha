@@ -48,7 +48,7 @@ jobs:
     - echo "$TRAVIS_BRANCH v.s $TRAVIS_TAG"
     - echo "$DOCKER_IMAGE"
     - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
-    - docker build -t $DOCKER_IMAGE ./etc/docker-compose/agent
+    - docker build -t $DOCKER_IMAGE -f ./etc/docker-compose/agent/Dockerfile.production ./etc/docker-compose/agent
     - docker push $DOCKER_IMAGE
     - docker image rm $DOCKER_IMAGE
     - docker image prune -f

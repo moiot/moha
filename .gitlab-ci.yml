@@ -27,7 +27,7 @@ release:
    # latest_image: moiot/moha:latest
   script:
     - make docker-agent
-    - docker build -t $docker_image ./etc/docker-compose/agent
+    - docker build -t $docker_image -f ./etc/docker-compose/agent/Dockerfile.production ./etc/docker-compose/agent
     #- docker tag $docker_image $latest_image
     - docker push $docker_image
     #- docker push $latest_image

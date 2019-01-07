@@ -116,11 +116,11 @@ release:
 tag:
 	git tag $(TAG)
 	git push origin refs/tags/$(TAG)
-	git push github refs/tags/$(TAG) || true
 
 docker-image:
 	@ make docker-agent
-	@ docker build -t moiot/moha:$(TAG) ./etc/docker-compose/agent
+	@ docker build -t moiot/moha:$(TAG) -f ./etc/docker-compose/agent/Dockerfile.production ./etc/docker-compose/agent
+
 
 env-up:
 	@ echo "start etcd cluster"
