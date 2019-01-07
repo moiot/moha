@@ -78,6 +78,16 @@ cd moha
 ```
 
 #### 构建
+
+**第一次**构建镜像的时候需要执行下面命令，配置基础镜像
+```bash
+docker pull gcc:8.1.0
+docker pull golang:1.11.0
+docker pull quay.io/coreos/etcd:v3.3.2
+docker build etc/etcd-image/v3.3.2/ -t moiot/etcd:v3.3.2
+docker build etc/mysql-image/5.7.22-pmm/ -t moiot/mysql:5.7.22-pmm
+```
+
 在代码根目录下执行
 ```make docker-image```
 编译代码并构建镜像。请确定本地的 Docker daemon 已经启动
