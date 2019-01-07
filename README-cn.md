@@ -107,17 +107,15 @@ docker build etc/mysql-image/5.7.22-pmm/ -t moiot/mysql:5.7.22-pmm
 将 `$DOCKER_IMAGE` 替换为镜像的 tag，执行下面的命令
 ```bash
 make docker-agent
-docker build -t $DOCKER_IMAGE ./etc/docker-compose/agent
+docker build -t $DOCKER_IMAGE -f Dockerfile.production ./etc/docker-compose/agent
 docker push $DOCKER_IMAGE
 docker image rm $DOCKER_IMAGE
 docker image prune -f
 ```
 
-如果使用 `travis` 或 `gitlab pipeline` 作为持续集成，可以使用下面任一方法
+如果使用 `travis` 或 `gitlab pipeline` 作为持续集成，可以使用下面任一方法打包和上传镜像
 - `make tag` 生成 tag 为 `<branch>-<commit_hash>` 
 - `make release RELEASE-TAG=xxx` 可指定 tag 
-
-打包和上传镜像
 
 
 ### 文档
