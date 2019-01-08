@@ -15,7 +15,6 @@ services:
     entrypoint: /agent/supervise
     volumes:
     - './node01.toml:/agent/config.toml'
-    - '../../../logs/supervise-1.log:/agent/log/supervise.log:rw'
     - '../../../logs:/agent/log:rw'
     - 'postgresql-node-1-data:/var/lib/postgresql/data:rw'
     container_name: postgresql-node-1
@@ -40,7 +39,6 @@ services:
     entrypoint: /agent/supervise
     volumes:
     - './node02.toml:/agent/config.toml'
-    - '../../../logs/supervise-2.log:/agent/log/supervise.log:rw'
     - '../../../logs:/agent/log:rw'
     - 'postgresql-node-2-data:/var/lib/postgresql/data:rw'
     container_name: postgresql-node-2

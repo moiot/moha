@@ -74,6 +74,8 @@ type Config struct {
 	ServiceType string         `toml:"service-type" json:"service-type"`
 	DBConfig    types.DBConfig `toml:"db-config" json:"db-config"`
 
+	LockTTL int `toml:"lock-ttl" json:"lock-ttl"`
+
 	InternalServiceHost string `toml:"internal-service-host" json:"internal-service-host"`
 	ExternalServiceHost string `toml:"external-service-host" json:"external-service-host"`
 

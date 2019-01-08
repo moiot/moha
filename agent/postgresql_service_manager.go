@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"os"
 	"os/exec"
+	"sync"
 	"syscall"
 	"time"
 
@@ -61,6 +62,9 @@ type postgresqlServiceManager struct {
 	db                  *sql.DB
 	replicationUser     string
 	replicationPassword string
+
+	// lockGenerator new a (distributed) lock
+	lockGenerator LockGenerator
 }
 
 func (m *postgresqlServiceManager) SetReadOnly() error {
@@ -94,6 +98,14 @@ func (m *postgresqlServiceManager) PromoteToMaster() error {
 	return err
 }
 func (m *postgresqlServiceManager) RedirectMaster(masterHost, masterPort string) error {
+	dlocker, err := m.lockGenerator.NewLocker()
+	if err != nil {
+		log.Errorf("has error when generate lock. %v", err)
+	} else {
+		dlocker.Lock()
+		defer dlocker.Unlock()
+	}
+
 	// stop postgresql process
 	log.Info("run pg_ctl stop")
 	stdout, stderr, err := runCommand("pg_ctl", "stop")
@@ -212,6 +224,11 @@ func (m *postgresqlServiceManager) LoadReplicationInfoOfMaster() (masterUUID, ex
 
 func (m *postgresqlServiceManager) GetServerUUID() (string, error) {
 	return "", nil
+}
+
+// LockGenerator generate a new locker
+type LockGenerator interface {
+	NewLocker() (sync.Locker, error)
 }
 
 // runCommand run the command with user `postgres`

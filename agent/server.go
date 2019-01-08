@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/juju/errors"
+	"github.com/moiot/moha/pkg/etcd"
 	"github.com/moiot/moha/pkg/log"
 	"github.com/moiot/moha/pkg/mysql"
 	"github.com/moiot/moha/pkg/systemcall"
@@ -201,6 +202,8 @@ func (s *Server) Start() error {
 		if err != nil {
 			return errors.Trace(err)
 		}
+		dlg := etcd.NewDistributedLockGenerator(s.node.RawClient(), "lock/pg", s.cfg.LockTTL)
+		sm.(*postgresqlServiceManager).lockGenerator = &dlg
 	}
 	s.serviceManager = sm
 
