@@ -14,7 +14,7 @@ etcd-password = "root"
 # path to the config data directory
 data-dir = "/tmp/agent01"
 # listen addr
-addr = "http://127.0.0.1:15434"
+addr = "http://127.0.0.1:15432"
 internal-service-host = "postgresql-node-2:5432"
 external-service-host = "127.0.0.1:5434"
 

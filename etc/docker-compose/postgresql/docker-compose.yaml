@@ -172,6 +172,29 @@ services:
     - '-initial-cluster'
     - 'etcd0=http://etcd0:2380,etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380,etcd4=http://etcd4:2380'
 
+  haproxy-master:
+    image: 'haproxy:1.9.0'
+    depends_on:
+    - postgresql-test-1
+    - postgresql-test-2
+    ports:
+    - '5000:5000'
+    - '7000:7000'
+    container_name: haproxy-master
+    volumes:
+    - './haproxy-master.cfg:/usr/local/etc/haproxy/haproxy.cfg'
+  haproxy-slave:
+    image: 'haproxy:1.9.0'
+    depends_on:
+    - postgresql-test-1
+    - postgresql-test-2
+    ports:
+    - '5001:5000'
+    - '7001:7000'
+    container_name: haproxy-slave
+    volumes:
+    - './haproxy-slave.cfg:/usr/local/etc/haproxy/haproxy.cfg'
+
 volumes:
   etcd0: {}
   etcd1: {}
