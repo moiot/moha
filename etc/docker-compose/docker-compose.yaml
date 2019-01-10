@@ -226,6 +226,22 @@ services:
     - 'pmm-data-consul:/opt/consul-data'
     - 'pmm-data-mysql:/var/lib/mysql'
     - 'pmm-data-grafana:/var/lib/grafana'
+  haproxy-master:
+    image: 'haproxy:1.9.0'
+    ports:
+    - '5000:5000'
+    - '7000:7000'
+    container_name: haproxy-master
+    volumes:
+    - './agent/haproxy-master.cfg:/usr/local/etc/haproxy/haproxy.cfg'
+  haproxy-slave:
+    image: 'haproxy:1.9.0'
+    ports:
+    - '5001:5000'
+    - '7001:7000'
+    container_name: haproxy-slave
+    volumes:
+    - './agent/haproxy-slave.cfg:/usr/local/etc/haproxy/haproxy.cfg'
 volumes:
   etcd0: {}
   etcd1: {}
