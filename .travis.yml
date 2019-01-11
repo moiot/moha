@@ -10,14 +10,9 @@ services:
 
 jobs:
   include:
-  - stage: coverage
-    before_install:
-  - go get -t -v ./...
-    script:
-    - go test -race -coverprofile=coverage.txt -covermode=atomic
-    after_success:
-    - bash <(curl -s https://codecov.io/bash)
   - stage: tests
+    before_install:
+    - go get -t -v ./...
     install:
     - sudo pip install cpplint
     - make init
@@ -38,9 +33,11 @@ jobs:
     script:
     - make lint
     - make docker-agent
-    - docker run --rm --name make_test -v `pwd`:/go/src/github.com/moiot/moha -w /go/src/github.com/moiot/moha golang:1.11.0 make test
+    - make test
     - docker build etc/mysql-image/5.7.22-pmm/ -t moiot/mysql:5.7.22-pmm
     - make integration-test || { tail -n 200 logs/mysql-*.log; sleep 10; exit 1; }
+    after_success:
+    - bash <(curl -s https://codecov.io/bash)
     after_failure:
     - make clean-data
 
