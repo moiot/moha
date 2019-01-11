@@ -55,7 +55,7 @@ checker-test:
 	@ docker exec mysql-node-1 mysql -h 127.0.0.1 -P 3306 -u mysql_user -pmysql_master_user_pwd -e 'select 1' >/dev/null || true
 	@ until docker exec mysql-node-1 mysql -h 127.0.0.1 -P 3306 -u mysql_user -pmysql_master_user_pwd -e 'select 1' >/dev/null 2>&1; do sleep 1; echo "checker-test: Waiting for DB 3307 to come up..."; done;
 	@ until docker exec mysql-node-2 mysql -h 127.0.0.1 -P 3306 -u mysql_user -pmysql_master_user_pwd -e 'select 1' >/dev/null 2>&1; do sleep 1; echo "checker-test: Waiting for DB 3308 to come up..."; done;
-	@ until docker exec mysql-nodem-3 mysql -h 127.0.0.1 -P 3306 -u mysql_user -pmysql_master_user_pwd -e 'select 1' >/dev/null 2>&1; do sleep 1; echo "checker-test: Waiting for DB 3309 to come up..."; done;
+	@ until docker exec mysql-node-3 mysql -h 127.0.0.1 -P 3306 -u mysql_user -pmysql_master_user_pwd -e 'select 1' >/dev/null 2>&1; do sleep 1; echo "checker-test: Waiting for DB 3309 to come up..."; done;
 	@ echo "grant privileges for checker user"
 	docker exec mysql-node-1 mysql -S /tmp/mysql.sock  -P 3306 -u root -pmaster_root_pwd -e "grant all privileges ON *.* TO 'mysql_user'@'%'" || true
 	docker exec mysql-node-2 mysql -S /tmp/mysql.sock  -P 3306 -u root -pmaster_root_pwd -e "grant all privileges ON *.* TO 'mysql_user'@'%'" || true
