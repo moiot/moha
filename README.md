@@ -2,6 +2,7 @@
 
 [![Build Status](https://travis-ci.org/moiot/moha.svg?branch=master)](https://travis-ci.org/moiot/moha)
 [![Go Report Card](https://goreportcard.com/badge/github.com/moiot/moha)](https://goreportcard.com/report/github.com/moiot/moha)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 ### What is Mobike High Availability(MoHA)? [中文](README-cn.md)
 

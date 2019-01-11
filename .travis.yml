@@ -3,12 +3,20 @@ sudo: enabled
 language: go
 go:
   - "1.11"
+  - tip
 
 services:
   - docker
 
 jobs:
   include:
+  - stage: coverage
+    before_install:
+  - go get -t -v ./...
+    script:
+    - go test -race -coverprofile=coverage.txt -covermode=atomic
+    after_success:
+    - bash <(curl -s https://codecov.io/bash)
   - stage: tests
     install:
     - sudo pip install cpplint
