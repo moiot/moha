@@ -45,6 +45,28 @@ services:
       REPLICATION_ROLE: master
       REPLICATION_USER: replication
       REPLICATION_PASSWORD: "replication"
+  postgresql-test-3:
+    build: .
+    depends_on:
+    - etcd0
+    - etcd1
+    - etcd2
+    - etcd3
+    - etcd4
+    ports:
+    - '5435:5432'
+    - '15435:15432'
+    entrypoint: /agent/supervise
+    volumes:
+    - './postgresql.conf:/var/lib/postgresql.conf:rw'
+    - './node03.toml:/agent/config.toml'
+    - '../../../logs:/agent/log:rw'
+    - 'postgresql-node-3-data:/var/lib/postgresql/data:rw'
+    container_name: postgresql-node-3
+    environment:
+      REPLICATION_ROLE: master
+      REPLICATION_USER: replication
+      REPLICATION_PASSWORD: "replication"
 
   etcd0:
     image: 'moiot/etcd:v3.3.2'

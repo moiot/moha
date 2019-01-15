@@ -204,6 +204,7 @@ func (s *Server) Start() error {
 		}
 		dlg := etcd.NewDistributedLockGenerator(s.node.RawClient(), "lock/pg", s.cfg.LockTTL)
 		sm.(*postgresqlServiceManager).lockGenerator = &dlg
+		sm.(*postgresqlServiceManager).uniqueID = s.node.ID()
 	}
 	s.serviceManager = sm
 
@@ -645,6 +646,8 @@ func (s *Server) isOnlyFollow() bool {
 	return s.cfg.OnlyFollow
 }
 
+// isPreviousMaster returns true if current node is the master in previous term (new leader exists)
+// or if current node is current term master and agent restarts (new leader does not exist, in leader campaign)
 func (s *Server) isPreviousMaster(leader *Leader) bool {
 	log.Infof("s.term: %d, s.node.ID(): %s, s.getUUID(): %s, leader: %+v ",
 		s.term, s.node.ID(), s.getUUID(), leader)
@@ -825,9 +828,11 @@ func (s *Server) preWatch(leader *Leader) (err error) {
 	if s.lastUUID == "" {
 		// if current node is the previous master, s.lastUUID is itself
 		if s.isPreviousMaster(leader) {
+			log.Info("run loadMasterLog")
 			err = s.loadMasterLogFromMySQL()
 		} else {
 			// maybe it is a restart agent, load from mysql
+			log.Info("run loadSlaveLog")
 			err = s.loadSlaveLogFromMySQL()
 		}
 		if err != nil {

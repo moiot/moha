@@ -17,6 +17,7 @@ CPPLINT := cpplint --quiet --filter=-readability/casting,-build/include_subdir
 CFILES := supervise/*.c
 
 DOCKER-COMPOSE := docker-compose -p moha -f etc/docker-compose/docker-compose.yaml
+PG-DOCKER-COMPOSE := docker-compose -p moha -f etc/docker-compose/postgresql/docker-compose.yaml
 
 PACKAGES := $$(go list ./...| grep -vE 'vendor|cmd')
 FILES    := $$(find . -name '*.go' -type f | grep -vE 'vendor')
@@ -142,6 +143,9 @@ stop-agents:
 start-all:
 	$(DOCKER-COMPOSE) up --build -d --force-recreate
 
+pg-start-all:
+	$(PG-DOCKER-COMPOSE) up --build -d --force-recreate
+
 export CHAOS
 chaos-test:
 	@ make clean-data
@@ -201,16 +205,6 @@ demo:
 
 clean-data:
 	@ $(DOCKER-COMPOSE) rm -vsf || true
-	@ docker volume rm moha_mysql-node-1-data || true
-	@ docker volume rm moha_mysql-node-2-data || true
-	@ docker volume rm moha_mysql-node-3-data || true
-	@ docker volume rm moha_etcd0 || true
-	@ docker volume rm moha_etcd1 || true
-	@ docker volume rm moha_etcd2 || true
-	@ docker volume rm moha_etcd3 || true
-	@ docker volume rm moha_etcd4 || true
-	@ docker volume rm moha_pmm-data-prometheus || true
-	@ docker volume rm moha_pmm-data-mysql || true
-	@ docker volume rm moha_pmm-data-grafana || true
-	@ docker volume rm moha_pmm-data-consul || true
+	@ $(PG-DOCKER-COMPOSE) rm -vsf || true
+	@ docker volume prune -f
 

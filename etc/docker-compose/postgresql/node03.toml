@@ -1,0 +1,48 @@
+# mysql-agent configuration
+
+cluster-name = "postgres-node-test"
+
+leader-lease-ttl = 10
+shutdown-threshold = 5
+register-ttl = 5
+
+# a comma separated list of etcd endpoints
+etcd-urls = "http://etcd-node-0:2379,http://etcd-node-1:2379,http://etcd-node-2:2379,http://etcd-node-3:2379,http://etcd-node-4:2379"
+etcd-root-path = "/dbproxy/clustername/ks_cfg/nodes"
+etcd-username = "root"
+etcd-password = "root"
+# path to the config data directory
+data-dir = "/tmp/agent01"
+# listen addr
+addr = "http://127.0.0.1:15432"
+internal-service-host = "postgresql-node-3:5432"
+external-service-host = "127.0.0.1:5435"
+
+fork-process-file = "/agent/mysql-agent-service-boot-daemon"
+fork-process-args = [
+    "mysql-agent-service-boot-daemon",
+    "/docker-entrypoint.sh",
+    "postgres"
+]
+fork-process-wait-second = 30
+
+# log related
+log-file = "/agent/log/postgresql-agent-3.log"
+error-log = "/agent/log/postgresql-agent-error-3.log"
+log-level = "info"
+log-max-size = 30
+log-max-days = 5
+log-compress = true
+
+service-type = "postgresql"
+lock-ttl = 30
+
+[db-config]
+host = "127.0.0.1"
+user = "postgres"
+password = "postgres"
+port = 5432
+timeout = "1"
+replication_user = "replication"
+replication_password = "replication"
+replication_net = "%"

@@ -69,3 +69,9 @@ func GetLastReplayLSN(db *sql.DB) (uint64, error) {
 	}
 	return r, nil
 }
+
+// Checkpoint executes `CHECKPOINT;` in PG
+func Checkpoint(db *sql.DB) error {
+	_, err := db.Exec("CHECKPOINT;")
+	return err
+}

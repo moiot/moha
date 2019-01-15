@@ -20,7 +20,8 @@ import (
 
 const redirectTemplate = `standby_mode = 'on'
 primary_conninfo = 'user=%s password=%s host=%s port=%s'
-recovery_target_timeline = 'latest'`
+recovery_target_timeline = 'latest'
+`
 
 // NewPostgreSQLServiceManager returns the instance of mysqlServiceManager
 func NewPostgreSQLServiceManager(dbConfig types.DBConfig, timeout time.Duration) (ServiceManager, error) {
@@ -65,6 +66,9 @@ type postgresqlServiceManager struct {
 
 	// lockGenerator new a (distributed) lock
 	lockGenerator LockGenerator
+
+	// uniqueID is the unique id that distinguish each PG server
+	uniqueID string
 }
 
 func (m *postgresqlServiceManager) SetReadOnly() error {
@@ -89,11 +93,28 @@ func (m *postgresqlServiceManager) SetReadWrite() error {
 	return err
 }
 func (m *postgresqlServiceManager) PromoteToMaster() error {
+	dlocker, err := m.lockGenerator.NewLocker()
+	if err != nil {
+		log.Errorf("has error when generate lock. %v", err)
+	} else {
+		dlocker.Lock()
+		defer dlocker.Unlock()
+	}
 
+	log.Info("run checkpoint")
+	err = postgresql.Checkpoint(m.db)
+	if err != nil {
+		log.Error("run checkpoint fail. ", err)
+	} else {
+		log.Info("run checkpoint success")
+	}
+	log.Info("run pg_ctl promote")
 	stdout, stderr, err := runCommand("pg_ctl", "promote")
 	if err != nil {
-		log.Error("has error when pg_ctl promote. ",
+		log.Errorf("has error when pg_ctl promote. err: %v, stdout: %s, stderr: %s ",
 			err, stdout, stderr)
+	} else {
+		log.Infof("run pg_ctl promote success. stdout: %s, stderr: %s", stdout, stderr)
 	}
 	return err
 }
@@ -147,22 +168,30 @@ func (m *postgresqlServiceManager) RedirectMaster(masterHost, masterPort string)
 		}
 	} else {
 		log.Info("run pg_rewind success")
+		log.Infof("stdout is %s. stderr is %s", stdout, stderr)
 		log.Info("write recovery.conf")
 		// change recover.conf
 		config := fmt.Sprintf(redirectTemplate,
 			m.replicationUser, m.replicationPassword, masterHost, masterPort)
 		err = ioutil.WriteFile("/var/lib/postgresql/data/recovery.conf",
 			[]byte(config), os.ModePerm)
+		exec.Command("chown", "postgres", "/var/lib/postgresql/data/recovery.conf").Run()
+		exec.Command("chown", ":postgres", "/var/lib/postgresql/data/recovery.conf").Run()
 		if err != nil {
 			log.Error("has error when write recovery.conf. ", err)
 			return errors.Trace(err)
 		}
+		log.Infof("write recovery.conf success")
 	}
 	log.Info("run pg_ctl start")
-	stdout, stderr, err = runCommand("pg_ctl", "start", "--log=/var/lib/postgresql/data/pg_ctl.log")
+	stdout, stderr, err = runCommand("pg_ctl", "start",
+		"--log=/var/lib/postgresql/data/pg_ctl.log", "--timeout=10")
 	if err != nil {
-		log.Error("has error when pg_ctl start. ",
+		log.Errorf("has error when pg_ctl start. err: %v, stdout: %s, stderr: %s",
 			err, stdout, stderr)
+		log.Error("pg_log is:")
+		bs, _ := ioutil.ReadFile("/var/lib/postgresql/data/pg_ctl.log")
+		log.Errorf("%s", string(bs))
 	} else {
 		log.Info("run pg_ctl start success")
 	}
@@ -188,6 +217,7 @@ func (m *postgresqlServiceManager) LoadMasterStatusFromDB() (*Position, error) {
 	}
 	pos := &Position{}
 	pos.EndTxnID = lsn
+	pos.UUID = m.uniqueID
 
 	return pos, nil
 }
@@ -199,6 +229,8 @@ func (m *postgresqlServiceManager) LoadSlaveStatusFromDB() (*Position, error) {
 	}
 	pos := &Position{}
 	pos.EndTxnID = lsn
+	pos.UUID = m.uniqueID
+
 	pos.SlaveIORunning = true
 	pos.SlaveSQLRunning = true
 
@@ -210,7 +242,7 @@ func (m *postgresqlServiceManager) LoadReplicationInfoOfSlave() (masterUUID, exe
 	if err != nil {
 		return "", "", 0, errors.Trace(err)
 	}
-	return "", "", lsn, nil
+	return m.uniqueID, "", lsn, nil
 
 }
 
@@ -219,11 +251,11 @@ func (m *postgresqlServiceManager) LoadReplicationInfoOfMaster() (masterUUID, ex
 	if err != nil {
 		return "", "", 0, errors.Trace(err)
 	}
-	return "", "", lsn, nil
+	return m.uniqueID, "", lsn, nil
 }
 
 func (m *postgresqlServiceManager) GetServerUUID() (string, error) {
-	return "", nil
+	return m.uniqueID, nil
 }
 
 // LockGenerator generate a new locker
