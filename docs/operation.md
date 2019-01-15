@@ -59,7 +59,7 @@ agent 提供以下的 HTTP 服务
 
 主从切换需要先执行 `/setReadOnly`，如果可以进行主从切换，则执行 `/changeMaster`，
 否则执行 `/setReadWrite` 使集群恢复可读写。
-具体步骤可以参考 [tool/switch.go](../tool/switch.go) 
+具体步骤可以参考 [tool/switch.go](../moctl/switch.go) 
 
 ### 计划外主从切换发生后的人工介入
 

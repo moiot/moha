@@ -32,7 +32,7 @@ MoHA部署
 - __监控__
     MoHA 提供监控针对agent以及数据库运行状态的API接口，可以方便对接公司数据库管理平台，实现Paas化监控
 
-![Mobike MoHA 架构图](/Users/mobike/mobike/project/src/moha/docs/MoHA in mobike.png)
+![Mobike MoHA 架构图](MoHA in mobike.png)
 
 
 #### 1 配置信息相关介绍
