@@ -140,11 +140,17 @@ func (s *Server) isLatestLog(logs map[string]LogForElection) (isLatest bool, isS
 			s.node.ID(), logs)
 		return false, false
 	}
-	endTnxID, err := mysql.GetTxnIDFromGTIDStr(myLog.LastGTID, myLog.LastUUID)
-	if err != nil {
-		// this should not happen
-		log.Errorf("error when GetTxnIDFromGTIDStr: %s, %s. err: %v", s.lastGTID, s.lastUUID, err)
-		return false, false
+	var endTxnID uint64
+	if myLog.Version >= 2 {
+		endTxnID = myLog.EndTxnID
+	} else {
+		mysqlEndTxnID, err := mysql.GetTxnIDFromGTIDStr(myLog.LastGTID, myLog.LastUUID)
+		if err != nil {
+			// this should not happen
+			log.Errorf("error when GetTxnIDFromGTIDStr: %s, %s. err: %v", s.lastGTID, s.lastUUID, err)
+			return false, false
+		}
+		endTxnID = uint64(mysqlEndTxnID)
 	}
 	isSinglePoint = true
 	for serverID, logForElection := range logs {
@@ -167,7 +173,7 @@ func (s *Server) isLatestLog(logs map[string]LogForElection) (isLatest bool, isS
 
 		// compare EndTxnID first
 		if logForElection.Version >= 2 {
-			if uint64(endTnxID) < logForElection.EndTxnID {
+			if endTxnID < logForElection.EndTxnID {
 				return false, false
 			}
 			continue
@@ -180,9 +186,9 @@ func (s *Server) isLatestLog(logs map[string]LogForElection) (isLatest bool, isS
 				serverID, logForElection.LastGTID, logForElection.LastUUID, err)
 			continue
 		}
-		if endTnxID < anotherTxnID {
+		if endTxnID < uint64(anotherTxnID) {
 			log.Infof("server %s has later txnid (%d vs %d), so server %s is not the latest",
-				serverID, anotherTxnID, endTnxID, s.node.ID())
+				serverID, anotherTxnID, endTxnID, s.node.ID())
 			return false, false
 		}
 	}
