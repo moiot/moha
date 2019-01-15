@@ -32,7 +32,7 @@ MoHA部署
 - __监控__
     MoHA 提供监控针对agent以及数据库运行状态的API接口，可以方便对接公司数据库管理平台，实现Paas化监控
 
-![Mobike MoHA 架构图](MoHA in mobike.png)
+![Mobike MoHA 架构图](MoHAInMobike.png)
 
 
 #### 1 配置信息相关介绍
@@ -59,7 +59,7 @@ MoHA部署
 >
 > - 配置表中数据库机器CPU/MEM/Storage 应根据线上数据库配置来定；MoHA进程占用的资源很小
 > - MoHA支持单机房部署与跨机房部署
-> - MoHA推荐主从节点总数量大于2，仅部署一个节点时，无法提供高可用
+> - MoHA推荐主从节点总数量大于2，仅部署一个节点时，进入单主模式
 > - MoHA支持单机多实例部署方式，通过端口区分不通实例组
 > - 推荐使用docker-compose部署方式,并使用高版本操作系统
 
