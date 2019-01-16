@@ -9,7 +9,8 @@ MoHA部署
       * [4 计划内切换](#4-计划内切换)
       * [5 计划外切换](#5-计划外切换)
       * [6 haproxy接入](#6-haproxy接入)
-      * [7 mobike MoHA 架构](#7-mobike-MoHA-架构)
+      * [7 监控](#7-监控)
+      * [8 mobike MoHA 架构](#8-mobike-MoHA-架构)
 
 
 ## 概览
@@ -363,8 +364,23 @@ haproxy -f /etc/haproxy.cfg
 ```buildoutcfg
 mysql -u root -h 127.0.0.1 -P 5000
 #验证m-haproxy上的请求是否发送到主库，s-haproxy上的读请求是否发送到slave 相当于dns的读写域名
+
 ```
-### 7 mobike MoHA 架构
+### 7 监控
+agent 内置了 [pmm-client](https://www.percona.com/doc/percona-monitoring-and-management/index.html)。
+如果已有 pmm-server 的话可以执行  
+```
+	docker exec <agent-container> pmm-admin config --server <pmm-server-ip>
+	docker exec <agent-container> pmm-admin add mysql --user <username> --password <password> <mysql-instance-name>
+```
+将 MySQL 加入 pmm-server 的监控。
+如果没有 pmm-server 可以参考 [etc/docker-compose/docker-compose.yaml](../etc/docker-compose/docker-compose.yaml)
+里面的 `pmm-server` 进行搭建。
+
+agent 的监控可以通过修改 pmm-server 内的 prometheus 配置进行添加。具体步骤可以参考
+[Makefile](../Makefile) 的 `monitor` 部分。
+
+### 8 mobike MoHA 架构
 ![Mobike MoHA 架构图](MoHAInMobike.png)
 > **注**：
 >
