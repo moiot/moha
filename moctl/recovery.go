@@ -207,7 +207,11 @@ func CreateRecoveryDockerConf(sourceComposeFile string, recoveryComposeFile stri
 		if c == io.EOF {
 			break
 		} else if strings.Contains(string(a), "entrypoint") {
-			_, err := io.WriteString(recoveryOpenFile, "        entrypoint: mysqld --defaults-file=/etc/my_"+mysqlport+".cnf\n")
+			var strMysqlStart string
+			strMysqlStart = "mysqld --defaults-file=/etc/my_"+mysqlport+".cnf\n"
+			strEntryPoint := strings.Replace(string(a), "/agent/supervise", strMysqlStart, 1 )
+			fmt.Println(strEntryPoint)
+			_, err := io.WriteString(recoveryOpenFile, strEntryPoint)
 			if err != nil {
 				return errors.New("write New recovery file fail")
 			}

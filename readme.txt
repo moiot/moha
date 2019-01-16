@@ -5,7 +5,7 @@ git branch
 2、删除不用的分支
 git branch -D feature-en-docs-new
 3、新建自己的本地分支
-git checkout -b feature-en-docs-new -t origin/feature-en-docs
+git checkout -b feature-en-docs-new -t origin/feature-en-docs-new
 4、开始修改自己的东西
 5、提交自己的修改
 git add 修改的文件

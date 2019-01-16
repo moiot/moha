@@ -275,14 +275,20 @@ agent 提供以下的 HTTP 服务
 编译moha/moctl目录下的switch.go
 主从切换需要先执行 `/setReadOnly`，如果可以进行主从切换，则执行 `/changeMaster`，
 否则执行 `/setReadWrite` 使集群恢复可读写。
-
+```
+# ./switch -instanceport 3306
+127.0.0.2:3306 master running thread is below 100,check continue
+127.0.0.3:3306 Slave_IO_Running and Slave_SQL_Running thread is ok,check continue
+127.0.0.3:3306 Seconds_Behind_Master is below 20s,check OK
+127.0.0.3:3306 slave is approve master,check OK
+```
 ### 5 计划外切换
-
+编译moha/moctl目录下的recovery.go
 
 ### 6 haproxy接入
 
 ### 6 mobike MoHA 架构
-
+![Mobike MoHA 架构图](MoHAInMobike.png)
 ### 7 mobike MoHA 企业架构图
 
 ### 8 roadmap
