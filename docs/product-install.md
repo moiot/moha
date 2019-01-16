@@ -3,8 +3,9 @@ MoHA部署
 
    * [MoHA 部署](#internal-mechanism-on-xenon)
       * [概览](#overview)
-      * [1 ETCD 部署](#1-xenon-raft)
-      * [2 MoHA 实例组部署](#2-high-availability)
+      * [1 配置信息相关介绍](#1-配置信息相关介绍)
+      * [2 ETCD 部署](#1-xenon-raft)
+      * [3 MoHA 实例组部署](#2-high-availability)
 
 
 ## 概览
@@ -61,6 +62,7 @@ MoHA部署
 > - MoHA支持单机房部署与跨机房部署
 > - MoHA推荐主从节点总数量大于2，仅部署一个节点时，进入单主模式
 > - MoHA支持单机多实例部署方式，通过端口区分不通实例组
+> - 数据库数据文件目录映射到物理机，容器故障不影响数据文件
 > - 推荐使用docker-compose部署方式,并使用高版本操作系统
 
 ### 2 ETCD部署
@@ -167,7 +169,7 @@ https://coreos.com/etcd/docs/latest/op-guide/monitoring.html
 
 ### 3 MoHA实例部署
 #### 3.1 下载安装镜像
-
+下载MoHA代码，本地编译moctl下的conf.go代码，参考conf.toml修改配置文件，生成docker-compose/
 ```
 docker push moiot/moha:v2.6.1
 ```
@@ -249,3 +251,38 @@ tail -fn 20 ${datadir}/${port}_agent/supervise.log
 2019/01/15 20:51:16.061 agent/single_point.go:188 [info] server 127.0.0.4:3306 is still in single point master mode
 #仅增加一个节点时，数据库进入单主模式，不会发生切换动作
 ```
+
+#### 3.7 etcd中 MoHA集群的展现
+```
+ etcdctl --endpoints="http://127.0.0.1:2379,http://127.0.0.2:2379,http://127.0.0.3:2379" --user root:D1hmWnE29PU4wJNr get /  --prefix
+ /dbproxy/moha_kaiyuan/ks_cfg/nodes/3306_moha_github/election #目录下记录切换相关信息
+ /dbproxy/moha_kaiyuan/ks_cfg/nodes/3306_moha_github/master #记录当前实例主库信息
+ 127.0.0.2:3306
+ /dbproxy/moha_kaiyuan/ks_cfg/nodes/3306_moha_github/slave/127.0.0.2:3306 #记录当前MoHA实例组所有的节点
+ {"NodeID":"127.0.0.2:3306","InternalHost":"127.0.0.2:3306","ExternalHost":"127.0.0.2:3306","LatestPos":{"File":"","Pos":"","GTID":"","UUID":""}}
+ /dbproxy/moha_kaiyuan/ks_cfg/nodes/3306_moha_github/slave/127.0.0.3:3306 #记录当前MoHA实例组所有的节点
+ {"NodeID":"127.0.0.3:3306","InternalHost":"127.0.0.3:3306","ExternalHost":"127.0.0.3:3306","LatestPos":{"File":"","Pos":"","GTID":"","UUID":""}}
+```
+
+### 4 计划内切换
+agent 提供以下的 HTTP 服务
+* `/changeMaster` 主从切换
+* `/setReadOnly` 将当前节点的 MySQL，如果是 Master 的话，设为只读
+* `/setReadWrite` 将当前节点的 MySQL，如果是 Master 的话，设为可读写
+* `/setOnlyFollow?onlyFollow=true/false` 设置为true时，不参与抢主；设置为false时，参与选主
+
+#### 4.1 计划内切换
+编译moha/moctl目录下的switch.go
+主从切换需要先执行 `/setReadOnly`，如果可以进行主从切换，则执行 `/changeMaster`，
+否则执行 `/setReadWrite` 使集群恢复可读写。
+
+### 5 计划外切换
+
+
+### 6 haproxy接入
+
+### 6 mobike MoHA 架构
+
+### 7 mobike MoHA 企业架构图
+
+### 8 roadmap

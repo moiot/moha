@@ -26,16 +26,36 @@ import (
 	"strings"
 	"time"
 
+	"flag"
 	"github.com/BurntSushi/toml"
 	"github.com/coreos/etcd/clientv3" //"encoding/json"
 )
 
 const (
-	filePath        = "example_config.toml"
 	dialEtcdTimeout = time.Second * 5
 	// MySQLTimeout defines the connection timeout to MySQL
 	MySQLTimeout = time.Second * 1
 )
+
+var (
+	h            bool
+	instanceport string
+)
+
+func init() {
+	flag.BoolVar(&h, "h", false, "this help")
+	flag.StringVar(&instanceport, "instanceport", "3306", "instance port you want switch")
+	flag.Usage = usage
+}
+
+func usage() {
+	fmt.Fprintf(os.Stderr, `switch  version 2.0
+  Usage: switch [h instanceport] [-instanceport=strMysqlPort]
+
+  Options:
+  `)
+	flag.PrintDefaults()
+}
 
 // DBConfig is the MySQL connection configuration
 type DBConfig struct {
@@ -329,11 +349,18 @@ func checkConsistency(cfg *Config, masterNode map[string]string, slaveNode []str
 }
 
 func main() {
+	flag.Parse()
+	if h {
+		flag.Usage()
+		os.Exit(-1)
+	}
+	filePath := "/etc/" + instanceport + "_config.toml"
 	realSlaveInfo := make([]string, 0, 3)
 	logger.InitLogger("mohaswitch.log")
 	cfg := &Config{}
 	_, err := toml.DecodeFile(filePath, cfg)
 	if err != nil {
+		fmt.Println(err.Error())
 		logger.Error(err)
 		os.Exit(-1)
 	}
