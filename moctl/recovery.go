@@ -31,11 +31,13 @@ import (
 var (
 	h bool
 	instanceport string
+	binlogbackupdir string
 )
 
 func init() {
 	flag.BoolVar(&h, "h", false, "this help")
 	flag.StringVar(&instanceport, "instanceport", "3000", "instance port you want recovery")
+	flag.StringVar(&binlogbackupdir, "binlogbackupdir", "/data/backup/binlog", "diff binlog backup")
 	flag.Usage = usage
 }
 
@@ -470,10 +472,15 @@ func main() {
 		os.Exit(-1)
 	}
 	//备份新主库未同步完的binlog
+	mkbinlogdir := "mkdir -p " + binlogbackupdir
+	_, err = linuxSystemCommand(mkbinlogdir)
+	if err != nil {
+		fmt.Println(err.Error())
+	}
 	recoveryBinlogList := make([]string, 0, 20)
 	for _, i := range binlogRecoverSlice {
 		sourcefile := mysqlDataDir + i
-		destfile := binlogBackupDir + i
+		destfile := binlogbackupdir + i
 		recoveryBinlogList = append(recoveryBinlogList, destfile)
 		isSuccessCopy := copyFile(sourcefile, destfile)
 		if isSuccessCopy == false {
@@ -485,7 +492,7 @@ func main() {
 	binlogFlashbackSlice := make([]string, 0, 20)
 	for j, i := range binlogRecoverSlice {
 		sourcefile := mysqlDataDir + i
-		destfile := binlogBackupDir + i
+		destfile := binlogbackupdir + i
 		if j == 0 {
 			flashbackCmd := "flashback --binlogFileNames=" + sourcefile + " --start-position=" + mp["MohaSwitchPost"] + " --outBinlogFileNameBase=" + destfile
 			binlogFlashbackSlice = append(binlogFlashbackSlice, destfile+".flashback")

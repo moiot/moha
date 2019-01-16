@@ -4,8 +4,12 @@ MoHA部署
    * [MoHA 部署](#internal-mechanism-on-xenon)
       * [概览](#overview)
       * [1 配置信息相关介绍](#1-配置信息相关介绍)
-      * [2 ETCD 部署](#1-xenon-raft)
-      * [3 MoHA 实例组部署](#2-high-availability)
+      * [2 ETCD部署](#2-ETCD部署)
+      * [3 MoHA实例部署](#3-MoHA实例部署)
+      * [4 计划内切换](#4-计划内切换)
+      * [5 计划外切换](#5-计划外切换)
+      * [6 haproxy接入](#6-haproxy接入)
+      * [7 mobike MoHA 架构](#7-mobike-MoHA-架构)
 
 
 ## 概览
@@ -33,7 +37,7 @@ MoHA部署
 - __监控__
     MoHA 提供监控针对agent以及数据库运行状态的API接口，可以方便对接公司数据库管理平台，实现Paas化监控
 
-![Mobike MoHA 架构图](MoHAInMobike.png)
+![MoHA 架构图](3az.png)
 
 
 #### 1 配置信息相关介绍
@@ -276,19 +280,95 @@ agent 提供以下的 HTTP 服务
 主从切换需要先执行 `/setReadOnly`，如果可以进行主从切换，则执行 `/changeMaster`，
 否则执行 `/setReadWrite` 使集群恢复可读写。
 ```
-# ./switch -instanceport 3306
+# ./switch -instanceport 3306 #需要在实例所在的服务器运行
 127.0.0.2:3306 master running thread is below 100,check continue
 127.0.0.3:3306 Slave_IO_Running and Slave_SQL_Running thread is ok,check continue
 127.0.0.3:3306 Seconds_Behind_Master is below 20s,check OK
 127.0.0.3:3306 slave is approve master,check OK
 ```
 ### 5 计划外切换
-编译moha/moctl目录下的recovery.go
+- 编译moha/moctl目录下的recovery.go
+- 在故障主机上Myflash `https://github.com/Meituan-Dianping/MyFlash`
+- 在故障主机运行recovery -instanceport 3306 -binlogbackupdir "/data/backup/"
+- recovery会生成一个padder.toml的文件，修改文件中需要补偿的数据库名称，目前仅支持一次补偿一个数据库
+- 运行./padder -config padder.toml 
 
 ### 6 haproxy接入
+#### 6.1 安装haproxy
+```
+yum -y install haproxy
+```
+#### 6.2 编写配置文件
+```
+#write haproxy 
+global
+    maxconn 100
 
-### 6 mobike MoHA 架构
+defaults
+    log global
+    mode tcp
+    retries 2
+    timeout client 30m
+    timeout connect 4s
+    timeout server 30m
+    timeout check 5s
+
+listen stats
+    mode http
+    bind *:7000
+    stats enable
+    stats uri /
+
+listen mysql
+    bind *:5000
+    option httpchk /masterCheck
+    http-check expect status 200
+    default-server inter 3s fall 3 rise 2 on-marked-down shutdown-sessions
+    server mysql-node-1 127.0.0.4:3306 maxconn 100 check port 13306
+    server mysql-node-2 127.0.0.5:3306 maxconn 100 check port 13306
+    server mysql-node-3 127.0.0.6:3306 maxconn 100 check port 13306
+# read haproxy
+global
+    maxconn 100
+
+defaults
+    log global
+    mode tcp
+    retries 2
+    timeout client 30m
+    timeout connect 4s
+    timeout server 30m
+    timeout check 5s
+
+listen stats
+    mode http
+    bind *:5000 #diff machine
+    stats enable
+    stats uri /
+
+listen mysql
+    bind *:5000
+    option httpchk /slaveCheck
+    http-check expect status 200
+    default-server inter 3s fall 3 rise 2 on-marked-down shutdown-sessions
+    server mysql-node-1 127.0.0.4:3306 maxconn 100 check port 13306
+    server mysql-node-2 127.0.0.5:3306 maxconn 100 check port 13306
+    server mysql-node-3 127.0.0.6:3306 maxconn 100 check port 13306
+```
+#### 6.3 启动haproxy
+```
+haproxy -f /etc/haproxy.cfg 
+```
+#### 6.4 验证
+```buildoutcfg
+mysql -u root -h 127.0.0.1 -P 5000
+#验证m-haproxy上的请求是否发送到主库，s-haproxy上的读请求是否发送到slave 相当于dns的读写域名
+```
+### 7 mobike MoHA 架构
 ![Mobike MoHA 架构图](MoHAInMobike.png)
-### 7 mobike MoHA 企业架构图
+> **注**：
+>
+> - 建议单独运行一套监控程序读取etcd中MoHA的节点信息，通过MoHA集群的主从切换事件，实现报警以及主从切换后信息
+> - 建议通过Pass化的管理，生成conf的配置文件，通过salt远程调用，实现自动化部署
+> - 建议通过golang封装备份脚本，实现定时备份以及备份上传到远程存储，解决备份的环境依赖问题
 
-### 8 roadmap
