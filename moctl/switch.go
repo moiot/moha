@@ -1,7 +1,7 @@
 // switch.go
 //Date          28/06/2018
 //Purpose       moha manual sitchover
-// 1 获取用户名和密码,读取配置文件 done
+// 1 获取用户名和密码,读取配置文件
 // 2 获取所有主从IP和端口
 // 3 检查当前正在运行连接数，当系统连接数大于100，中止此次计划内切换
 //   检查一下主从是否都OK，如果从库有问题，则提示具体有问题从库，并中止此次计划内切换
@@ -10,7 +10,9 @@
 //		如果成功：开始执行计划内切换；检查计划内切换是否成功
 //		如果失败：重新将主库设置只读
 // 关注目标：计划外切换失败，需要关注是否节点状态和之前一样；可通过日志查看到之前的节点信息
-// 使用修改：不同的集群，目前切换的时候，需要修改filePath
+
+//change pos to gtid
+
 package main
 
 import (
@@ -29,11 +31,11 @@ import (
 	"flag"
 	"github.com/BurntSushi/toml"
 	"github.com/coreos/etcd/clientv3" //"encoding/json"
+	gmysql "github.com/siddontang/go-mysql/mysql"
 )
 
 const (
 	dialEtcdTimeout = time.Second * 5
-	// MySQLTimeout defines the connection timeout to MySQL
 	MySQLTimeout = time.Second * 1
 )
 
@@ -50,7 +52,7 @@ func init() {
 
 func usage() {
 	fmt.Fprintf(os.Stderr, `switch  version 2.0
-  Usage: switch [h instanceport] [-instanceport=strMysqlPort]
+    Usage: switch [h instanceport] [-instanceport=strMysqlPort]
 
   Options:
   `)
@@ -142,23 +144,75 @@ func threadsRunning(masterdb *sql.DB) (int, error) {
 	return masterRunningThread, nil
 }
 
-func masterStatus(masterdb *sql.DB) (string, int, error) {
-	var binlogFile string
-	var binlogPos int
-	var nullPtr interface{}
+func masterStatus(masterdb *sql.DB) (string, int, string, error) {
+	var (
+		binlogGtid       string
+		binlogFile string
+		binlogPos        int
+		nullPtr    interface{}
+	)
 	rows, err := masterdb.Query("show master status")
 	if err != nil {
-		return "nil", 9999, err
+		return "nil", 9999, "nil",err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		err = rows.Scan(&binlogFile, &binlogPos, &nullPtr, &nullPtr, &nullPtr)
+		err = rows.Scan(&binlogFile, &binlogPos, &nullPtr, &nullPtr, &binlogGtid)
 		if err != nil {
-			return "nil", 9999, err
+			return "nil", 9999, "nil",err
 		}
 	}
-	return binlogFile, binlogPos, nil
+	return binlogFile, binlogPos, binlogGtid, nil
 }
+
+// GetServerUUID returns the uuid of current mysql server
+func getServerUUID(db *sql.DB) (string, error) {
+	var masterUUID string
+	rows, err := db.Query(`SELECT @@server_uuid;`)
+	if err != nil {
+		return "", errors.Trace(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		err = rows.Scan(&masterUUID)
+		if err != nil {
+			return "", errors.Trace(err)
+		}
+	}
+	if rows.Err() != nil {
+		return "", errors.Trace(rows.Err())
+	}
+	return masterUUID, nil
+}
+
+func parseGTIDSet(gtidStr string) (GTIDSet, error) {
+	gs, err := gmysql.ParseMysqlGTIDSet(gtidStr)
+	if err != nil {
+		return GTIDSet{}, err
+	}
+
+	return GTIDSet{gs.(*gmysql.MysqlGTIDSet)}, nil
+}
+
+
+func getTxnIDFromGTIDStr(gtidStr, serverUUID string) (int64, error) {
+
+	gtidSet, err := parseGTIDSet(gtidStr)
+	if err != nil {
+		return 0, err
+	}
+	uuidSet, ok := gtidSet.Sets[serverUUID]
+	if !ok {
+		return 0, err
+	}
+	intervalLen := len(uuidSet.Intervals)
+	if intervalLen == 0 {
+		return 0, err
+	}
+	// assume the gtidset is continuous, only pick the last one
+	return uuidSet.Intervals[intervalLen-1].Stop, nil
+}
+
 
 //---------------------------------MySQL Agent API ----------------------------------
 func getMysqlAgent(agentapi string) (result bool) {
@@ -268,30 +322,45 @@ func prefixSwitchCheck(cfg *Config, masterNode map[string]string, slaveNode []st
 	//   检查一下主从是否都OK，如果从库有问题，则提示具体有问题从库，并中止此次计划内切换
 	//	 检查一下每个从库主从延迟，如果主从延迟大于10S，中止此次计划内切换
 	masterport, _ := strconv.Atoi(masterNode["port"])
-	materdb, err := CreateDB(cfg.Db.MysqlUser, cfg.Db.MysqlPwd, masterNode["ip"], masterport)
-	masterThreadsRuning, err := threadsRunning(materdb)
+	masterdb, err := CreateDB(cfg.Db.MysqlUser, cfg.Db.MysqlPwd, masterNode["ip"], masterport)
+	masterThreadsRuning, err := threadsRunning(masterdb)
 	if err != nil {
-		logger.Error(err)
-		logger.Error("connect to master database fail")
+		fmt.Println(err.Error())
+		logger.Error(err.Error())
 		return false, err
 	}
 	if masterThreadsRuning > 100 {
 		fmt.Println(masterNode["ip"] + ":" + masterNode["port"] + " master running thread  greater than 100,plan switch exit")
 		logger.Error(masterNode["ip"] + ":" + masterNode["port"] + " master running thread  greater than 100,plan switch exit")
 		return false, nil
+	} else {
+		fmt.Println(masterNode["ip"] + ":" + masterNode["port"] + " master running thread is below 100,check continue")
+		logger.Info(masterNode["ip"] + ":" + masterNode["port"] + " master running thread is below 100,check continue")
 	}
-	fmt.Println(masterNode["ip"] + ":" + masterNode["port"] + " master running thread is below 100,check continue")
-	logger.Info(masterNode["ip"] + ":" + masterNode["port"] + " master running thread is below 100,check continue")
+
+	// get show master status info
+	serverUUID,err := getServerUUID(masterdb)
+	if err != nil {
+		fmt.Println(err.Error())
+		logger.Error(err.Error())
+	}
+	fmt.Println(serverUUID)
+	_,_,mastergtid,err := masterStatus(masterdb)
+	if err != nil {
+		fmt.Println(err.Error())
+		logger.Error(err.Error())
+	}
+	fmt.Println(mastergtid)
 
 	for i := 0; i < len(slaveNode); i++ {
 		slaveIP := strings.Split(slaveNode[i], ":")[0]
 		tslavePort := strings.Split(slaveNode[i], ":")[1]
 		slavePort, _ := strconv.Atoi(tslavePort)
-		slavedb, err := CreateDB(cfg.Db.MysqlUser, cfg.Db.MysqlPwd, slaveIP, slavePort)
+		slaveDBInfo, err := CreateDB(cfg.Db.MysqlUser, cfg.Db.MysqlPwd, slaveIP, slavePort)
 		if err != nil {
 			logger.Error(err)
 		}
-		slaveinfo, err := GetSlaveStatus(slavedb)
+		slaveinfo, err := GetSlaveStatus(slaveDBInfo)
 		if slaveinfo["Slave_IO_Running"] == "Yes" && slaveinfo["Slave_SQL_Running"] == "Yes" {
 			fmt.Println(slaveNode[i] + " Slave_IO_Running and Slave_SQL_Running thread is ok,check continue")
 			logger.Info(slaveNode[i] + " Slave_IO_Running and Slave_SQL_Running thread is ok,check continue")
@@ -308,14 +377,19 @@ func prefixSwitchCheck(cfg *Config, masterNode map[string]string, slaveNode []st
 			logger.Info(slaveNode[i] + " Seconds_Behind_Master is greater than 20s,plan switch exit")
 			return false, nil
 		}
+		//todo 增加比较从库没有应用的事务数量比较 Retrieved_Gtid_Set == Executed_Gtid_Set
+		var trxend int64
+		trxend,_ = getTxnIDFromGTIDStr(slaveinfo["Executed_Gtid_Set"],serverUUID)
+		fmt.Println(strconv.FormatInt(trxend,10))
 	}
 	return true, nil
 }
 
 func checkConsistency(cfg *Config, masterNode map[string]string, slaveNode []string) (bool, error) {
 	masterport, _ := strconv.Atoi(masterNode["port"])
-	materdb, err := CreateDB(cfg.Db.MysqlUser, cfg.Db.MysqlPwd, masterNode["ip"], masterport)
-	binlogFileName, binlogPos, err := masterStatus(materdb)
+	masterdb, err := CreateDB(cfg.Db.MysqlUser, cfg.Db.MysqlPwd, masterNode["ip"], masterport)
+	binlogFileName, binlogPos, _, err := masterStatus(masterdb)
+
 	strBinlogPos := strconv.Itoa(binlogPos)
 	if err != nil {
 		logger.Error(err)
