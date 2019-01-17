@@ -391,7 +391,7 @@ func checkConsistency(cfg *Config, masterNode map[string]string, slaveNode []str
 	if err != nil {
 		logger.Error(err.Error())
 	}
-	fmt.Println(strconv.FormatInt(intMasterGtid,10))
+	//fmt.Println(strconv.FormatInt(intMasterGtid,10))
 	strBinlogPos := strconv.Itoa(binlogPos)
 	if err != nil {
 		logger.Error(err)
