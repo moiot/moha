@@ -290,8 +290,8 @@ agent 提供以下的 HTTP 服务
 ### 5 计划外切换
 - 编译moha/moctl目录下的recovery.go
 - 在故障主机上Myflash `https://github.com/Meituan-Dianping/MyFlash`
-- 在故障主机运行recovery -instanceport 3306 -binlogbackupdir "/data/backup/"
-- recovery会生成一个padder.toml的文件，修改文件中需要补偿的数据库名称，目前仅支持一次补偿一个数据库
+- 在故障主机运行recovery -instanceport 3306 -binlogbackupdir "/data/backup/binlog"
+- recovery会生成一个padder.toml的文件，修改文件中需要补偿的数据库名称
 - 运行./padder -config padder.toml 
 
 ### 6 haproxy接入

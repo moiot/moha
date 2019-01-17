@@ -144,6 +144,10 @@ func threadsRunning(masterdb *sql.DB) (int, error) {
 	return masterRunningThread, nil
 }
 
+type GTIDSet struct {
+	*gmysql.MysqlGTIDSet
+}
+
 func masterStatus(masterdb *sql.DB) (string, int, string, error) {
 	var (
 		binlogGtid       string
@@ -170,17 +174,17 @@ func getServerUUID(db *sql.DB) (string, error) {
 	var masterUUID string
 	rows, err := db.Query(`SELECT @@server_uuid;`)
 	if err != nil {
-		return "", errors.Trace(err)
+		return "", err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		err = rows.Scan(&masterUUID)
 		if err != nil {
-			return "", errors.Trace(err)
+			return "", err
 		}
 	}
 	if rows.Err() != nil {
-		return "", errors.Trace(rows.Err())
+		return "", err
 	}
 	return masterUUID, nil
 }
@@ -353,6 +357,10 @@ func prefixSwitchCheck(cfg *Config, masterNode map[string]string, slaveNode []st
 	fmt.Println(mastergtid)
 
 	for i := 0; i < len(slaveNode); i++ {
+		var (
+			retrievedMasterLastGtid int64
+			executedLasteGtid int64
+		)
 		slaveIP := strings.Split(slaveNode[i], ":")[0]
 		tslavePort := strings.Split(slaveNode[i], ":")[1]
 		slavePort, _ := strconv.Atoi(tslavePort)
@@ -378,9 +386,14 @@ func prefixSwitchCheck(cfg *Config, masterNode map[string]string, slaveNode []st
 			return false, nil
 		}
 		//todo 增加比较从库没有应用的事务数量比较 Retrieved_Gtid_Set == Executed_Gtid_Set
-		var trxend int64
-		trxend,_ = getTxnIDFromGTIDStr(slaveinfo["Executed_Gtid_Set"],serverUUID)
-		fmt.Println(strconv.FormatInt(trxend,10))
+
+		retrievedMasterLastGtid,_ = getTxnIDFromGTIDStr(slaveinfo["Executed_Gtid_Set"],serverUUID)
+		executedLasteGtid,_ = getTxnIDFromGTIDStr(slaveinfo["Executed_Gtid_Set"],serverUUID)
+		gtidNotExec:=retrievedMasterLastGtid-executedLasteGtid
+		strGtidNotExec := strconv.FormatInt(gtidNotExec,10)
+		diffGtidEvent := fmt.Sprintf("%s this node has %s gitd event not exec",slaveIP,strGtidNotExec)
+		fmt.Println(diffGtidEvent)
+
 	}
 	return true, nil
 }

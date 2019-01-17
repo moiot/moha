@@ -512,7 +512,7 @@ func main() {
 	}
 
 	for _, i := range binlogFlashbackSlice {
-		flashbackMysql := "mysqlbinlog --skip-gtids " + i + " | mysql -u " + cfg.Db.MysqlUser + " -p" + cfg.Db.MysqlPwd + " -h" + cfg.Db.MysqlHost + " -P" + mysqlport //+ cfg.Db.MysqlPort
+		flashbackMysql := "mysqlbinlog --skip-gtids " + i + " | mysql -u " + cfg.Db.MysqlUser + " -p" + cfg.Db.MysqlPwd + " -h" + cfg.Db.MysqlHost + " -P" + mysqlport
 		fmt.Println(flashbackMysql)
 		_, err := linuxSystemCommand(flashbackMysql)
 		fmt.Println(flashbackMysql)
