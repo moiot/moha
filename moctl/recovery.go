@@ -254,9 +254,22 @@ func CreateDB(cfg DBConfig) (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	return db, nil
 }
+//new master
+// CreateDB creates db connection using the cfg
+func createNewMasterDB(user ,passwd,host,port string) (*sql.DB, error) {
+	dbDSN := fmt.Sprintf("%s:%s@tcp(%s:%d)/?charset=utf8&interpolateParams=true",
+		cfg.MysqlUser, cfg.MysqlPwd, cfg.MysqlHost, cfg.MysqlPort)
+	db, err := sql.Open("mysql", dbDSN)
+	//fmt.Println(dbDSN)
+	if err != nil {
+		return nil, err
+	}
+	return db, nil
+}
+
+
 
 // CloseDB closes the db connection
 func CloseDB(db *sql.DB) error {
@@ -264,6 +277,25 @@ func CloseDB(db *sql.DB) error {
 		return nil
 	}
 	return db.Close()
+}
+
+func getServerDataDir(db *sql.DB) (string, error) {
+	var dataDir string
+	rows, err := db.Query(`SELECT @@datadir;`)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		err = rows.Scan(&dataDir)
+		if err != nil {
+			return "", err
+		}
+	}
+	if rows.Err() != nil {
+		return "", err
+	}
+	return dataDir, nil
 }
 
 // GetMasterStatus shows master status of MySQL.
@@ -382,7 +414,7 @@ func getBinlogList(cfg *Config, strBinlogFile string) ([]string, error) {
 	}
 	//oldMasterBinlogPos := fmt.Sprint(pos.Pos)
 	//oldMasterBinlogGtid := gtidSet.String()
-	fmt.Println(binlogStpStr, binlogSlice)
+	//fmt.Println(binlogStpStr, binlogSlice)
 	return binlogSlice, nil
 
 }
@@ -431,7 +463,7 @@ func main() {
 		fmt.Println(err.Error())
 		os.Exit(-1)
 	}
-	mysqlDataDir := "/data1/mysql/" + cfg.EtcdCluster + "/"
+	//mysqlDataDir := "/data1/mysql/" + cfg.EtcdCluster + "/"
 
 	writecfg := &WriteConfig{}
 	//判断生产环境docker容器是否处于运行状态，如果处于运行状态，则停止所有动作
@@ -442,15 +474,23 @@ func main() {
 	}
 	if strings.Replace(productDocker, "\n", "", -1) == "1" {
 		fmt.Println("product docker images runing,script exit")
-		os.Exit(-1) //线上需要去掉此处注释
+		os.Exit(-1)
 	}
 
-	//通过配置文件获取etcd的连接信息，通过etcd获取切换后的新主，切换时，新主同步到旧主的点位，GTID信息
+	//通过配置文件获取etcd的连接信息，通过etcd获取切换后的新主切换时，新主同步到旧主的点位，GTID信息
 	mp, err := GetEtcdSwitchInfo(cfg, filePath)
 	if err != nil {
 		fmt.Println(err.Error())
 		os.Exit(-1)
 	}
+	//mp["MohaNewMasterIp"]
+	newMasterInfo, err := createNewMasterDB(cfg.Db.MysqlUser, cfg.Db.MysqlPwd, mp["MohaNewMasterIp"], mp["MohaNewMasterPort"] )
+	mysqlDataDir,err := getServerDataDir(newMasterInfo)
+	if nil != nil {
+		fmt.Println(err.Error())
+		os.Exit(-1)
+	}
+
 
 	//通过生产使用的docker compose file，生成做flashback需要使用的compose文件，降低出错几率
 	err = CreateRecoveryDockerConf(sourceComposeFile, recoveryComposeFile, mysqlport)

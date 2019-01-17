@@ -173,6 +173,7 @@ func getServerUUID(db *sql.DB) (string, error) {
 	}
 	return masterUUID, nil
 }
+
 type GTIDSet struct {
 	*gmysql.MysqlGTIDSet
 }
