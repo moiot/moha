@@ -280,7 +280,6 @@ func getInstanceGroupMaster(cfg *Config) (map[string]string, error) {
 
 //from etcd  get single master mode
 func getSingleMasterMode(cfg *Config) (bool, error) {
-	masterInfo := make(map[string]string)
 	client, err := initEtcdClient(cfg.EtcdURLs, cfg.EtcdUsername, cfg.EtcdPassword)
 	if err != nil {
 		logger.Error(err.Error())
