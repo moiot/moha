@@ -277,6 +277,29 @@ func getInstanceGroupMaster(cfg *Config) (map[string]string, error) {
 	return masterInfo, nil
 }
 
+
+//from etcd  get single master mode
+func getSingleMasterMode(cfg *Config) (bool, error) {
+	masterInfo := make(map[string]string)
+	client, err := initEtcdClient(cfg.EtcdURLs, cfg.EtcdUsername, cfg.EtcdPassword)
+	if err != nil {
+		logger.Error(err.Error())
+		os.Exit(-1)
+	} else {
+		resp, err := client.Get(context.Background(), cfg.EtcdRootPath+cfg.EtcdCluster+"/single_point_master", clientv3.WithKeysOnly())
+		if err != nil {
+			logger.Error(err.Error())
+			os.Exit(-1)
+		}
+		if len(resp.Kvs) <= 0 {
+			return false,nil
+		} else {
+			return true, nil
+		}
+	}
+	return true, nil
+}
+
 //from etcd  get instancegroup slave node info
 func getInstanceGroupSlave(cfg *Config) ([]string, error) {
 	slaveInfo := make([]string, 0, 3)
@@ -441,6 +464,11 @@ func main() {
 	_, err := toml.DecodeFile(filePath, cfg)
 	if err != nil {
 		logger.Error(err)
+		os.Exit(-1)
+	}
+	isSingleMode, _ := getSingleMasterMode(cfg)
+	if isSingleMode == true {
+		fmt.Println("current moha instance group is single mode,not allow switch")
 		os.Exit(-1)
 	}
 	masterNode, err := getInstanceGroupMaster(cfg)

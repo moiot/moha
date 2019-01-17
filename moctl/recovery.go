@@ -53,7 +53,6 @@ func usage() {
 const (
 	dialEtcdTimeout     = time.Second * 5
 	recoveryComposeFile = "/etc/recoverycomposefile.yml"
-	binlogBackupDir     = "/data1/backup/binlog/"
 )
 
 type MysqlCurrentStat struct {
