@@ -1,20 +1,6 @@
 // switch.go
-//Date          28/06/2018
 //Purpose       moha manual sitchover
-// 1 获取用户名和密码,读取配置文件
-// 2 获取所有主从IP和端口
-// 3 检查当前正在运行连接数，当系统连接数大于100，中止此次计划内切换
-//   检查一下主从是否都OK，如果从库有问题，则提示具体有问题从库，并中止此次计划内切换
-//	 检查一下每个从库主从延迟，如果主从延迟大于10S，中止此次计划内切换
-//   设置read_only;
-//		如果成功：开始执行计划内切换；检查计划内切换是否成功
-//		如果失败：重新将主库设置只读
-// 关注目标：计划外切换失败，需要关注是否节点状态和之前一样；可通过日志查看到之前的节点信息
-
-//change pos to gtid
-
 package main
-
 import (
 	"context"
 	"database/sql"
@@ -27,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
 	"flag"
 	"github.com/BurntSushi/toml"
 	"github.com/coreos/etcd/clientv3" //"encoding/json"
@@ -37,6 +22,8 @@ import (
 const (
 	dialEtcdTimeout = time.Second * 5
 	MySQLTimeout = time.Second * 1
+	maxRuningThred = 200
+	maxNotExecGtid = 10000
 )
 
 var (
@@ -144,9 +131,7 @@ func threadsRunning(masterdb *sql.DB) (int, error) {
 	return masterRunningThread, nil
 }
 
-type GTIDSet struct {
-	*gmysql.MysqlGTIDSet
-}
+
 
 func masterStatus(masterdb *sql.DB) (string, int, string, error) {
 	var (
@@ -188,7 +173,9 @@ func getServerUUID(db *sql.DB) (string, error) {
 	}
 	return masterUUID, nil
 }
-
+type GTIDSet struct {
+	*gmysql.MysqlGTIDSet
+}
 func parseGTIDSet(gtidStr string) (GTIDSet, error) {
 	gs, err := gmysql.ParseMysqlGTIDSet(gtidStr)
 	if err != nil {
@@ -322,40 +309,29 @@ func getInstanceGroupSlave(cfg *Config) ([]string, error) {
 
 //切换前预检查
 func prefixSwitchCheck(cfg *Config, masterNode map[string]string, slaveNode []string) (bool, error) {
-	//   检查当前正在运行连接数，当系统连接数大于100，中止此次计划内切换
-	//   检查一下主从是否都OK，如果从库有问题，则提示具体有问题从库，并中止此次计划内切换
-	//	 检查一下每个从库主从延迟，如果主从延迟大于10S，中止此次计划内切换
 	masterport, _ := strconv.Atoi(masterNode["port"])
-	masterdb, err := CreateDB(cfg.Db.MysqlUser, cfg.Db.MysqlPwd, masterNode["ip"], masterport)
-	masterThreadsRuning, err := threadsRunning(masterdb)
+	masterDBInfo, err := CreateDB(cfg.Db.MysqlUser, cfg.Db.MysqlPwd, masterNode["ip"], masterport)
+	masterThreadsRuning, err := threadsRunning(masterDBInfo)
 	if err != nil {
-		fmt.Println(err.Error())
 		logger.Error(err.Error())
 		return false, err
 	}
-	if masterThreadsRuning > 100 {
-		fmt.Println(masterNode["ip"] + ":" + masterNode["port"] + " master running thread  greater than 100,plan switch exit")
-		logger.Error(masterNode["ip"] + ":" + masterNode["port"] + " master running thread  greater than 100,plan switch exit")
+	if masterThreadsRuning > maxRuningThred {
+		logger.Error(masterNode["ip"] + ":" + masterNode["port"] + " master running thread  greater than" +strconv.FormatInt(maxRuningThred,10)+",plan switch exit")
 		return false, nil
 	} else {
-		fmt.Println(masterNode["ip"] + ":" + masterNode["port"] + " master running thread is below 100,check continue")
-		logger.Info(masterNode["ip"] + ":" + masterNode["port"] + " master running thread is below 100,check continue")
+		logger.Info(masterNode["ip"] + ":" + masterNode["port"] + " master running thread is below "+strconv.FormatInt(maxRuningThred,10)+",check continue")
 	}
 
 	// get show master status info
-	serverUUID,err := getServerUUID(masterdb)
+	serverUUID,err := getServerUUID(masterDBInfo)
 	if err != nil {
-		fmt.Println(err.Error())
 		logger.Error(err.Error())
 	}
-	fmt.Println(serverUUID)
-	_,_,mastergtid,err := masterStatus(masterdb)
+	_,_,mastergtid,err := masterStatus(masterDBInfo)
 	if err != nil {
-		fmt.Println(err.Error())
 		logger.Error(err.Error())
 	}
-	//fmt.Println(mastergtid)
-
 	for i := 0; i < len(slaveNode); i++ {
 		var (
 			masterGtidEvent int64
@@ -370,34 +346,30 @@ func prefixSwitchCheck(cfg *Config, masterNode map[string]string, slaveNode []st
 		}
 		slaveinfo, err := GetSlaveStatus(slaveDBInfo)
 		if slaveinfo["Slave_IO_Running"] == "Yes" && slaveinfo["Slave_SQL_Running"] == "Yes" {
-			fmt.Println(slaveNode[i] + " Slave_IO_Running and Slave_SQL_Running thread is ok,check continue")
 			logger.Info(slaveNode[i] + " Slave_IO_Running and Slave_SQL_Running thread is ok,check continue")
 		} else {
-			fmt.Println(slaveNode[i] + " Slave_IO_Running: " + slaveinfo["Slave_IO_Running"] + " Slave_SQL_Running:" + slaveinfo["Slave_SQL_Running"] + " ,plan switch exit")
 			logger.Error(slaveNode[i] + " Slave_IO_Running: " + slaveinfo["Slave_IO_Running"] + " Slave_SQL_Running:" + slaveinfo["Slave_SQL_Running"] + " ,plan switch exit")
 			return false, nil
 		}
-		if slaveinfo["Seconds_Behind_Master"] <= "20" {
-			fmt.Println(slaveNode[i] + " Seconds_Behind_Master is below 20s,check OK")
-			logger.Info(slaveNode[i] + " Seconds_Behind_Master is below 20s,check OK")
-		} else {
-			fmt.Println(slaveNode[i] + " Seconds_Behind_Master is greater than 20s,plan switch exit")
-			logger.Info(slaveNode[i] + " Seconds_Behind_Master is greater than 20s,plan switch exit")
-			return false, nil
+		masterGtidEvent, err = getTxnIDFromGTIDStr(mastergtid,serverUUID)
+		if err != nil {
+			logger.Error(err.Error())
+			return false ,nil
 		}
-		masterGtidEvent,_ = getTxnIDFromGTIDStr(mastergtid,serverUUID)
-		executedLasteGtid,_ = getTxnIDFromGTIDStr(slaveinfo["Executed_Gtid_Set"],serverUUID)
+		executedLasteGtid, err = getTxnIDFromGTIDStr(slaveinfo["Executed_Gtid_Set"],serverUUID)
+		if err != nil {
+			logger.Error(err.Error())
+			return false ,nil
+		}
 		gtidNotExec:=masterGtidEvent-executedLasteGtid
 		strGtidNotExec := strconv.FormatInt(gtidNotExec,10)
-
-		if gtidNotExec >= 10000 {
-			diffGtidEvent := fmt.Sprintf("%s this node has %s gitd event not exec,so exit",slaveIP,strGtidNotExec)
-			fmt.Println(diffGtidEvent)
-			logger.Info(diffGtidEvent)
+		strmaxNotExecGtid := strconv.FormatInt(maxNotExecGtid,10)
+		if gtidNotExec >= maxNotExecGtid {
+			diffGtidEvent := fmt.Sprintf("%s this node has %s gitd event not exec,greater than %s",slaveIP,strGtidNotExec,strmaxNotExecGtid)
+			logger.Error(diffGtidEvent)
 			return false,nil
 		} else {
-			diffGtidEvent := fmt.Sprintf("%s this node has %s gitd event not exec,so exec",slaveIP,strGtidNotExec)
-			fmt.Println(diffGtidEvent)
+			diffGtidEvent := fmt.Sprintf("%s this node has %s gitd event not exec,less than %s",slaveIP,strGtidNotExec,strmaxNotExecGtid)
 			logger.Info(diffGtidEvent)
 		}
 	}
@@ -412,18 +384,17 @@ func checkConsistency(cfg *Config, masterNode map[string]string, slaveNode []str
 	// get show master status info
 	serverUUID,err := getServerUUID(masterdb)
 	if err != nil {
-		fmt.Println(err.Error())
 		logger.Error(err.Error())
+		return false,err
 	}
 	intMasterGtid ,err = getTxnIDFromGTIDStr(masterGtid,serverUUID)
 	if err != nil {
-		fmt.Println(err.Error())
+		logger.Error(err.Error())
 	}
 	fmt.Println(strconv.FormatInt(intMasterGtid,10))
 	strBinlogPos := strconv.Itoa(binlogPos)
 	if err != nil {
 		logger.Error(err)
-		logger.Error("connect to master database fail")
 		return false, err
 	}
 	for i := 0; i < len(slaveNode); i++ {
@@ -442,14 +413,15 @@ func checkConsistency(cfg *Config, masterNode map[string]string, slaveNode []str
 			return false, err
 		}
 
-		executedLasteGtid,_ = getTxnIDFromGTIDStr(slaveinfo["Executed_Gtid_Set"],serverUUID)
+		executedLasteGtid, err = getTxnIDFromGTIDStr(slaveinfo["Executed_Gtid_Set"],serverUUID)
+		if err != nil {
+			logger.Error(err.Error())
+		}
 		gtidNotExec:=intMasterGtid-executedLasteGtid
 		if slaveinfo["Relay_Master_Log_File"] == binlogFileName && slaveinfo["Exec_Master_Log_Pos"] == strBinlogPos  && gtidNotExec == 0 {
 			logger.Info(slaveNode[i] + " slave is approve master,check OK")
-			fmt.Println(slaveNode[i] + " slave is approve master,check OK")
 		} else {
 			logger.Info(slaveNode[i] + " slave is not approve master,check fail")
-			fmt.Println(slaveNode[i] + " slave is not approve master,check fail")
 			return false, nil
 		}
 	}
@@ -468,7 +440,6 @@ func main() {
 	cfg := &Config{}
 	_, err := toml.DecodeFile(filePath, cfg)
 	if err != nil {
-		fmt.Println(err.Error())
 		logger.Error(err)
 		os.Exit(-1)
 	}
@@ -494,29 +465,25 @@ func main() {
 			for i := 0; i < 10; i++ {
 				getconsistency, err := checkConsistency(cfg, masterNode, realSlaveInfo)
 				if err != nil {
-					logger.Error("connect to database fail,recovery setreadonly and exit")
 					fmt.Println("connect to database fail,recovery setreadonly and exit")
-					//todo 进入recovery mode
 					_ = getMysqlAgent(setReadWrite)
 					os.Exit(-1)
 				}
 				if getconsistency == true {
 					getchangeResult := getMysqlAgent(setChangeMaster)
 					if getchangeResult == true {
-						fmt.Println("change master success")
+						fmt.Println("change master success,detail more to log")
 						logger.Info("change master success")
 						os.Exit(-1)
 					} else {
-						//todo 回滚的时候，需要再次检查一下主从确实没有变化后，才将旧主库只读取消，防止主从都可写
-						fmt.Println("change master fail,be careful")
 						logger.Error("change master fail,be careful")
 						readwrite := getMysqlAgent(setReadWrite)
 						if readwrite == true {
+							fmt.Println("recovery readwrite success,detail more to log")
 							logger.Info("recovery readwrite success")
-							fmt.Println("recovery readwrite success")
 						} else {
-							logger.Error("recovery readwrite fail")
-							fmt.Println("recovery readwrite fail")
+							fmt.Println("recovery readwrite fail,detail more to log")
+							logger.Info("recovery readwrite fail")
 						}
 					}
 				}
@@ -524,10 +491,10 @@ func main() {
 			}
 			readwrite1 := getMysqlAgent(setReadWrite)
 			if readwrite1 == true {
-				fmt.Println("while deadline time,master slave not consistency，to set master readwrite success ")
+				fmt.Println("while deadline time,master slave not consistency，to set master readwrite success,detail more to log ")
 				logger.Info("while deadline time,master slave not consistency，to set master readwrite success ")
 			} else {
-				fmt.Println("while deadline time,master slave not consistency，to set master readwrite fail,want dba to check ")
+				fmt.Println("while deadline time,master slave not consistency，to set master readwrite fail,want dba to check,detail more to log ")
 				logger.Error("while deadline time,master slave not consistency，to set master readwrite fail,want dba to check ")
 			}
 		}
