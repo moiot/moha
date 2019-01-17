@@ -354,11 +354,11 @@ func prefixSwitchCheck(cfg *Config, masterNode map[string]string, slaveNode []st
 		fmt.Println(err.Error())
 		logger.Error(err.Error())
 	}
-	fmt.Println(mastergtid)
+	//fmt.Println(mastergtid)
 
 	for i := 0; i < len(slaveNode); i++ {
 		var (
-			retrievedMasterLastGtid int64
+			masterGtidEvent int64
 			executedLasteGtid int64
 		)
 		slaveIP := strings.Split(slaveNode[i], ":")[0]
@@ -385,24 +385,41 @@ func prefixSwitchCheck(cfg *Config, masterNode map[string]string, slaveNode []st
 			logger.Info(slaveNode[i] + " Seconds_Behind_Master is greater than 20s,plan switch exit")
 			return false, nil
 		}
-		//todo 增加比较从库没有应用的事务数量比较 Retrieved_Gtid_Set == Executed_Gtid_Set
-
-		retrievedMasterLastGtid,_ = getTxnIDFromGTIDStr(slaveinfo["Executed_Gtid_Set"],serverUUID)
+		masterGtidEvent,_ = getTxnIDFromGTIDStr(mastergtid,serverUUID)
 		executedLasteGtid,_ = getTxnIDFromGTIDStr(slaveinfo["Executed_Gtid_Set"],serverUUID)
-		gtidNotExec:=retrievedMasterLastGtid-executedLasteGtid
+		gtidNotExec:=masterGtidEvent-executedLasteGtid
 		strGtidNotExec := strconv.FormatInt(gtidNotExec,10)
-		diffGtidEvent := fmt.Sprintf("%s this node has %s gitd event not exec",slaveIP,strGtidNotExec)
-		fmt.Println(diffGtidEvent)
 
+		if gtidNotExec >= 10000 {
+			diffGtidEvent := fmt.Sprintf("%s this node has %s gitd event not exec,so exit",slaveIP,strGtidNotExec)
+			fmt.Println(diffGtidEvent)
+			logger.Info(diffGtidEvent)
+			return false,nil
+		} else {
+			diffGtidEvent := fmt.Sprintf("%s this node has %s gitd event not exec,so exec",slaveIP,strGtidNotExec)
+			fmt.Println(diffGtidEvent)
+			logger.Info(diffGtidEvent)
+		}
 	}
 	return true, nil
 }
 
 func checkConsistency(cfg *Config, masterNode map[string]string, slaveNode []string) (bool, error) {
+	var intMasterGtid int64
 	masterport, _ := strconv.Atoi(masterNode["port"])
 	masterdb, err := CreateDB(cfg.Db.MysqlUser, cfg.Db.MysqlPwd, masterNode["ip"], masterport)
-	binlogFileName, binlogPos, _, err := masterStatus(masterdb)
-
+	binlogFileName, binlogPos, masterGtid, err := masterStatus(masterdb)
+	// get show master status info
+	serverUUID,err := getServerUUID(masterdb)
+	if err != nil {
+		fmt.Println(err.Error())
+		logger.Error(err.Error())
+	}
+	intMasterGtid ,err = getTxnIDFromGTIDStr(masterGtid,serverUUID)
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+	fmt.Println(strconv.FormatInt(intMasterGtid,10))
 	strBinlogPos := strconv.Itoa(binlogPos)
 	if err != nil {
 		logger.Error(err)
@@ -410,20 +427,24 @@ func checkConsistency(cfg *Config, masterNode map[string]string, slaveNode []str
 		return false, err
 	}
 	for i := 0; i < len(slaveNode); i++ {
+		var executedLasteGtid int64
 		slaveIP := strings.Split(slaveNode[i], ":")[0]
-		tslavePort := strings.Split(slaveNode[i], ":")[1]
-		slavePort, _ := strconv.Atoi(tslavePort)
-		slavedb, err := CreateDB(cfg.Db.MysqlUser, cfg.Db.MysqlPwd, slaveIP, slavePort)
+		tSlavePort := strings.Split(slaveNode[i], ":")[1]
+		slavePort, _ := strconv.Atoi(tSlavePort)
+		slaveDBInfo, err := CreateDB(cfg.Db.MysqlUser, cfg.Db.MysqlPwd, slaveIP, slavePort)
 		if err != nil {
 			logger.Error(err)
 			return false, err
 		}
-		slaveinfo, err := GetSlaveStatus(slavedb)
+		slaveinfo, err := GetSlaveStatus(slaveDBInfo)
 		if err != nil {
 			logger.Error(err)
 			return false, err
 		}
-		if slaveinfo["Relay_Master_Log_File"] == binlogFileName && slaveinfo["Exec_Master_Log_Pos"] == strBinlogPos && slaveinfo["Seconds_Behind_Master"] == "0" {
+
+		executedLasteGtid,_ = getTxnIDFromGTIDStr(slaveinfo["Executed_Gtid_Set"],serverUUID)
+		gtidNotExec:=intMasterGtid-executedLasteGtid
+		if slaveinfo["Relay_Master_Log_File"] == binlogFileName && slaveinfo["Exec_Master_Log_Pos"] == strBinlogPos  && gtidNotExec == 0 {
 			logger.Info(slaveNode[i] + " slave is approve master,check OK")
 			fmt.Println(slaveNode[i] + " slave is approve master,check OK")
 		} else {
