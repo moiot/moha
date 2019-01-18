@@ -487,7 +487,7 @@ func main() {
 	//mp["MohaNewMasterIp"]
 	newMasterInfo, err := createNewMasterDB(cfg.Db.MysqlUser, cfg.Db.MysqlPwd, mp["MohaNewMasterIp"], intMysqlPort)
 	mysqlDataDir, err := getServerDataDir(newMasterInfo)
-	if nil != nil {
+	if err != nil {
 		fmt.Println(err.Error())
 		os.Exit(-1)
 	}
