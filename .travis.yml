@@ -12,7 +12,7 @@ jobs:
   include:
   - stage: tests
     before_install:
-    - go get -t -v ./...
+    - go get -t -v `go list ./...| grep -vE 'vendor|cmd|moctl'`
     install:
     - sudo pip install cpplint
     - make init

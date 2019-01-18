@@ -1,5 +1,0 @@
-2019/01/16 14:28:55.598 [ERROR] open example_config.toml: no such file or directory 
-2019/01/16 14:29:00.470 [ERROR] open example_config.toml: no such file or directory 
-2019/01/16 14:29:07.422 [ERROR] open example_config.toml: no such file or directory 
-2019/01/16 14:53:00.839 [ERROR] open /etc/3306_config.toml: no such file or directory 
-2019/01/16 14:54:26.436 [ERROR] open /etc/3306_config.toml: no such file or directory 
