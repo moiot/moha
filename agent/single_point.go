@@ -119,6 +119,8 @@ func (s *Server) becomeSinglePointMaster(resume bool) {
 	writeSPMCh := make(chan interface{})
 	go s.writeSPMToLog(writeSPMCh)
 	defer s.stopWriteSPMToLog(writeSPMCh)
+	s.setIsSPMToTrue()
+	defer s.setIsSPMToFalse()
 	// after success, watch registryPath for new instance joining
 	s.waitUntilSlaveAppears()
 

@@ -60,8 +60,9 @@ type Server struct {
 
 	serviceManager ServiceManager
 
-	isLeader   int32
-	onlyFollow bool
+	isLeader            int32
+	onlyFollow          bool
+	isSinglePointMaster int32
 
 	// leaseExpireTS is the timestamp that lease might expire if lease is failed to renew.
 	// leaseExpireTS := time.Now() + leaseTTL - shutdownThreshold
@@ -611,6 +612,18 @@ func (s *Server) setIsLeaderToFalse() bool {
 
 func (s *Server) amILeader() bool {
 	return atomic.LoadInt32(&s.isLeader) == 1
+}
+
+func (s *Server) setIsSPMToTrue() {
+	atomic.StoreInt32(&s.isSinglePointMaster, 1)
+}
+
+func (s *Server) setIsSPMToFalse() bool {
+	return atomic.CompareAndSwapInt32(&s.isSinglePointMaster, 1, 0)
+}
+
+func (s *Server) amISPM() bool {
+	return atomic.LoadInt32(&s.isSinglePointMaster) == 1
 }
 
 func (s *Server) loadUUID() error {

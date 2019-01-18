@@ -34,7 +34,7 @@ func (s *Server) MasterCheck(w http.ResponseWriter, r *http.Request) {
 // SlaveCheck return status 200 iff current node is not master else status 418
 func (s *Server) SlaveCheck(w http.ResponseWriter, r *http.Request) {
 
-	if !s.amILeader() {
+	if !s.amILeader() || s.amISPM() {
 		w.Write([]byte("ok"))
 	} else {
 		http.Error(w, http.StatusText(http.StatusTeapot), http.StatusTeapot)
