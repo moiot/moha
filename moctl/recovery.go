@@ -156,6 +156,18 @@ func GetEtcdSwitchInfo(cfg *Config, filePath string) (map[string]string, error) 
 		fmt.Println("main", "main", "Init etcd client failed", err.Error())
 		os.Exit(-1)
 	}
+	//get current term
+	currentterm, err := client.Get(context.Background(), cfg.EtcdRootPath+cfg.EtcdCluster+"/election/master/term",
+		clientv3.WithLimit(1))
+	if err != nil {
+		fmt.Println(err.Error())
+		os.Exit(-1)
+	}
+	fmt.Println(string(currentterm.Kvs[0].Value))
+	if len(currentterm.Kvs) <= 0 {
+		fmt.Println("less than 0")
+		os.Exit(-1)
+	}
 	resp, err := client.Get(context.Background(), cfg.EtcdRootPath+cfg.EtcdCluster+"/switch/",
 		clientv3.WithPrefix(),
 		clientv3.WithSort(clientv3.SortByKey, clientv3.SortDescend),
