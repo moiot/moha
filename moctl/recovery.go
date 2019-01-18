@@ -380,6 +380,9 @@ func getBinlogList(cfg *Config, strBinlogFile string) ([]string, error) {
 			break
 		}
 		time.Sleep(time.Duration(1) * time.Second)
+		if i == 10 {
+			return nil, err
+		}
 	}
 	oldMasterLastBinlogFile := pos.Name
 	binlogStpStr := strings.Split(strings.Split(string(oldMasterLastBinlogFile), ".")[1], "\"")[0]
