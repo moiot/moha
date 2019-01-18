@@ -18,7 +18,7 @@ CFILES := supervise/*.c
 
 DOCKER-COMPOSE := docker-compose -p moha -f etc/docker-compose/docker-compose.yaml
 
-PACKAGES := $$(go list ./...| grep -vE 'vendor|cmd')
+PACKAGES := $$(go list ./...| grep -vE 'vendor|cmd|moctl')
 FILES    := $$(find . -name '*.go' -type f | grep -vE 'vendor')
 
 TAG := $(shell git rev-parse --abbrev-ref HEAD | tr / -)-$(shell git rev-parse --short HEAD)
