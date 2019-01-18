@@ -393,7 +393,7 @@ func prefixSwitchCheck(cfg *Config, masterNode map[string]string, slaveNode []st
 			return true, nil
 		}
 	}
-
+	return true, nil
 }
 
 func checkConsistency(cfg *Config, masterNode map[string]string, slaveNode []string) (bool, error) {
