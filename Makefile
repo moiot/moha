@@ -10,7 +10,7 @@ GO      := GO15VENDOREXPERIMENT="1" go
 GOBUILD := $(GO) build
 GOTEST  := $(GO) test
 
-GOFILTER  := grep -vE 'vendor'
+GOFILTER  := grep -vE 'vendor|moctl'
 GOCHECKER := $(GOFILTER) | awk '{ print } END { if (NR > 0) { exit 1 } }'
 
 CPPLINT := cpplint --quiet --filter=-readability/casting,-build/include_subdir
