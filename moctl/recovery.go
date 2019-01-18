@@ -578,7 +578,7 @@ func main() {
 	db, err := CreateDB(cfg.Db)
 	resetMaster := "reset master"
 	resetGtid := "SET @@GLOBAL.GTID_PURGED=\"" + mp["MohaSwitchGtid"] + "\""
-	fmt.Println(resetGtid)
+	//fmt.Println(resetGtid)
 	err = dbSet(db, resetMaster)
 	if err != nil {
 		fmt.Println(err.Error())
