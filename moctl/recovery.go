@@ -375,12 +375,12 @@ func getBinlogList(cfg *Config, strBinlogFile string) ([]string, error) {
 	)
 	for i := 0; i <= 10; i++ {
 		pos, _, err = GetMasterStatus(db)
-		fmt.Println(err)
 		if err == nil {
 			break
 		}
 		time.Sleep(time.Duration(1) * time.Second)
 		if i == 10 {
+			fmt.Println("in deadline time, old master start  ")
 			return nil, err
 		}
 	}
@@ -539,7 +539,6 @@ func main() {
 			flashbackCmd := "flashback --binlogFileNames=" + sourcefile + " --start-position=" + mp["MohaSwitchPost"] + " --outBinlogFileNameBase=" + destfile
 			binlogFlashbackSlice = append(binlogFlashbackSlice, destfile+".flashback")
 			_, err := linuxSystemCommand(flashbackCmd)
-			fmt.Println(flashbackCmd)
 			if err != nil {
 				fmt.Println(err.Error())
 			}
@@ -555,9 +554,7 @@ func main() {
 
 	for _, i := range binlogFlashbackSlice {
 		flashbackMysql := "mysqlbinlog --skip-gtids " + i + " | mysql -u " + cfg.Db.MysqlUser + " -p" + cfg.Db.MysqlPwd + " -h" + cfg.Db.MysqlHost + " -P" + instanceport
-		fmt.Println(flashbackMysql)
 		_, err := linuxSystemCommand(flashbackMysql)
-		fmt.Println(flashbackMysql)
 		if err != nil {
 			fmt.Println(err.Error())
 		}
@@ -599,4 +596,6 @@ func main() {
 	}
 	toml.NewEncoder(paddercfg).Encode(&writecfg)
 	paddercfg.Close()
+	//manual operator
+	fmt.Println("1、fist check flashback success or not\n 2、restart docker by product docker compose file\n 3、Modify padder.toml to compensate diff data")
 }
