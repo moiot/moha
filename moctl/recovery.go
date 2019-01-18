@@ -177,6 +177,7 @@ func GetEtcdSwitchInfo(cfg *Config, filePath string) (map[string]string, error) 
 		return mp, errors.New("MohaSwitchIPPort is null")
 	}
 	if MohaSwitchIPPort == cfg.EtcdHostPort {
+		fmt.Println("mohaswitchipport", MohaSwitchIPPort, " cfg.EtcdHostPort", cfg.EtcdHostPort)
 		return mp, errors.New("current node is not switch node,please check")
 	}
 	MohaPosInfo := strings.Split(string(resp.Kvs[0].Value), ",\"")
