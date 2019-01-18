@@ -163,12 +163,28 @@ func GetEtcdSwitchInfo(cfg *Config, filePath string) (map[string]string, error) 
 		fmt.Println(err.Error())
 		os.Exit(-1)
 	}
-	fmt.Println(string(currentterm.Kvs[0].Value))
+	intCurrentTerm, err := strconv.Atoi(string(currentterm.Kvs[0].Value))
 	if len(currentterm.Kvs) <= 0 {
-		fmt.Println("less than 0")
+		fmt.Println("get instance group current term fail from etcd")
 		os.Exit(-1)
 	}
-	resp, err := client.Get(context.Background(), cfg.EtcdRootPath+cfg.EtcdCluster+"/switch/",
+	recoveryNodeTerm, err := client.Get(context.Background(), cfg.EtcdRootPath+cfg.EtcdCluster+"/election/terms/"+cfg.EtcdHostPort,
+		clientv3.WithLimit(1))
+	if err != nil {
+		fmt.Println(err.Error())
+		os.Exit(-1)
+	}
+	if len(recoveryNodeTerm.Kvs) <= 0 {
+		fmt.Println("get recovery node term fail from etcd")
+		os.Exit(-1)
+	}
+	strRecoveryTerm := string(recoveryNodeTerm.Kvs[0].Value)
+	intRecoveryTerm, err := strconv.Atoi(strRecoveryTerm)
+	if intRecoveryTerm != intCurrentTerm-1 {
+		fmt.Println("Previous master is not current Node,so exit")
+		os.Exit(-1)
+	}
+	resp, err := client.Get(context.Background(), cfg.EtcdRootPath+cfg.EtcdCluster+"/switch/"+strRecoveryTerm,
 		clientv3.WithPrefix(),
 		clientv3.WithSort(clientv3.SortByKey, clientv3.SortDescend),
 		clientv3.WithLimit(1))
@@ -181,22 +197,12 @@ func GetEtcdSwitchInfo(cfg *Config, filePath string) (map[string]string, error) 
 		os.Exit(-1)
 	}
 	var currentstat MysqlCurrentStat
-	err = json.Unmarshal([]byte(resp.Kvs[0].Value), &currentstat)
-	fmt.Println(err)
+	_ = json.Unmarshal([]byte(resp.Kvs[0].Value), &currentstat)
 	MohaConInfo := strings.Split(string(resp.Kvs[0].Key), "/")
 	MohaSwitchIPPort := MohaConInfo[len(MohaConInfo)-1]
 	if MohaSwitchIPPort == "" {
 		return mp, errors.New("MohaSwitchIPPort is null")
 	}
-	if MohaSwitchIPPort == cfg.EtcdHostPort {
-		fmt.Println("mohaswitchipport", MohaSwitchIPPort, " cfg.EtcdHostPort", cfg.EtcdHostPort)
-		return mp, errors.New("current node is not switch node,please check")
-	}
-	MohaPosInfo := strings.Split(string(resp.Kvs[0].Value), ",\"")
-	if len(MohaPosInfo) <= 0 {
-		fmt.Println("etcd switch postion info is null")
-	}
-	fmt.Println(string(resp.Kvs[0].Value))
 	mp["MohaSwitchFile"] = currentstat.BinlogFile
 	mp["MohaSwitchPost"] = currentstat.BinlogPos
 	mp["MohaSwitchGtid"] = currentstat.BinlogGtid
