@@ -160,7 +160,7 @@ func GetEtcdSwitchInfo(cfg *Config, filePath string) (map[string]string, error) 
 	currentterm, err := client.Get(context.Background(), cfg.EtcdRootPath+cfg.EtcdCluster+"/election/master/term",
 		clientv3.WithLimit(1))
 	if err != nil {
-		fmt.Println(err.Error())
+		fmt.Println("connect to etcd fail")
 		os.Exit(-1)
 	}
 	intCurrentTerm, err := strconv.Atoi(string(currentterm.Kvs[0].Value))
@@ -171,7 +171,7 @@ func GetEtcdSwitchInfo(cfg *Config, filePath string) (map[string]string, error) 
 	recoveryNodeTerm, err := client.Get(context.Background(), cfg.EtcdRootPath+cfg.EtcdCluster+"/election/terms/"+cfg.EtcdHostPort,
 		clientv3.WithLimit(1))
 	if err != nil {
-		fmt.Println(err.Error())
+		fmt.Println("connect to etcd fail")
 		os.Exit(-1)
 	}
 	if len(recoveryNodeTerm.Kvs) <= 0 {
@@ -189,7 +189,7 @@ func GetEtcdSwitchInfo(cfg *Config, filePath string) (map[string]string, error) 
 		clientv3.WithSort(clientv3.SortByKey, clientv3.SortDescend),
 		clientv3.WithLimit(1))
 	if err != nil {
-		fmt.Println(err.Error())
+		fmt.Println("connect to etcd fail")
 		os.Exit(-1)
 	}
 	if len(resp.Kvs) <= 0 {
@@ -377,16 +377,16 @@ func getBinlogList(cfg *Config, strBinlogFile string) ([]string, error) {
 	binlogSlice := make([]string, 0, 20)
 	binlogStrStr := strings.Split(string(strBinlogFile), ".")[1]
 	binlogPreName := strings.Split(string(strBinlogFile), ".")[0]
-	fmt.Println(binlogStrStr, binlogPreName)
+	//fmt.Println(binlogStrStr, binlogPreName)
 	binlogStrNum, err := strconv.ParseInt(string(binlogStrStr), 10, 64)
 	if err != nil {
-		fmt.Println(err.Error())
+		//fmt.Println(err.Error())
 		return binlogSlice, errors.New(err.Error())
 	}
-	fmt.Println("debug:", strBinlogFile, binlogStrNum)
+	//fmt.Println("debug:", strBinlogFile, binlogStrNum)
 	db, err := CreateDB(cfg.Db)
 	if err != nil {
-		fmt.Println("get mysql conn fail")
+		fmt.Println("connect to old master fail")
 	}
 	var (
 		pos gmysql.Position
@@ -407,10 +407,10 @@ func getBinlogList(cfg *Config, strBinlogFile string) ([]string, error) {
 	binlogStpStr := strings.Split(strings.Split(string(oldMasterLastBinlogFile), ".")[1], "\"")[0]
 	binlogStpNum, err := strconv.ParseInt(string(binlogStpStr), 10, 64)
 	if err != nil {
-		fmt.Println(err.Error())
+		//fmt.Println(err.Error())
 		return binlogSlice, errors.New(err.Error())
 	}
-	fmt.Println(strconv.FormatInt(binlogStrNum, 10))
+	//fmt.Println(strconv.FormatInt(binlogStrNum, 10))
 	for i := binlogStrNum; i <= binlogStpNum; i++ {
 		iStr := strconv.FormatInt(i, 10)
 		iStrLen := strings.Count(iStr, "") - 1
@@ -447,19 +447,16 @@ func copyFile(source, dest string) bool {
 	}
 	sourceOpen, err := os.Open(source)
 	if err != nil {
-		fmt.Println(err.Error())
 		return false
 	}
 	defer sourceOpen.Close()
 	destOpen, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY, 644)
 	if err != nil {
-		fmt.Println(err.Error())
 		return false
 	}
 	defer destOpen.Close()
 	_, copyErr := io.Copy(destOpen, sourceOpen)
 	if copyErr != nil {
-		fmt.Println(copyErr.Error())
 		return false
 	} else {
 		return true
@@ -616,5 +613,5 @@ func main() {
 	toml.NewEncoder(paddercfg).Encode(&writecfg)
 	paddercfg.Close()
 	//manual operator
-	fmt.Println("1、fist check flashback success or not\n 2、restart docker by product docker compose file\n 3、Modify padder.toml to compensate diff data")
+	fmt.Println(" 1、fist check flashback success or not\n 2、restart docker by product docker compose file\n 3、Modify padder.toml to compensate diff data")
 }
