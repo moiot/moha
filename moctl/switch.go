@@ -1,9 +1,11 @@
 // switch.go
 //Purpose       moha manual sitchover
 package main
+
 import (
 	"context"
 	"database/sql"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"logger"
@@ -13,7 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"flag"
+
 	"github.com/BurntSushi/toml"
 	"github.com/coreos/etcd/clientv3" //"encoding/json"
 	gmysql "github.com/siddontang/go-mysql/mysql"
@@ -21,9 +23,9 @@ import (
 
 const (
 	dialEtcdTimeout = time.Second * 5
-	MySQLTimeout = time.Second * 1
-	maxRuningThred = 200
-	maxNotExecGtid = 10000
+	MySQLTimeout    = time.Second * 1
+	maxRuningThred  = 200
+	maxNotExecGtid  = 10000
 )
 
 var (
@@ -131,24 +133,22 @@ func threadsRunning(masterdb *sql.DB) (int, error) {
 	return masterRunningThread, nil
 }
 
-
-
 func masterStatus(masterdb *sql.DB) (string, int, string, error) {
 	var (
-		binlogGtid       string
+		binlogGtid string
 		binlogFile string
-		binlogPos        int
+		binlogPos  int
 		nullPtr    interface{}
 	)
 	rows, err := masterdb.Query("show master status")
 	if err != nil {
-		return "nil", 9999, "nil",err
+		return "nil", 9999, "nil", err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		err = rows.Scan(&binlogFile, &binlogPos, &nullPtr, &nullPtr, &binlogGtid)
 		if err != nil {
-			return "nil", 9999, "nil",err
+			return "nil", 9999, "nil", err
 		}
 	}
 	return binlogFile, binlogPos, binlogGtid, nil
@@ -177,6 +177,7 @@ func getServerUUID(db *sql.DB) (string, error) {
 type GTIDSet struct {
 	*gmysql.MysqlGTIDSet
 }
+
 func parseGTIDSet(gtidStr string) (GTIDSet, error) {
 	gs, err := gmysql.ParseMysqlGTIDSet(gtidStr)
 	if err != nil {
@@ -185,7 +186,6 @@ func parseGTIDSet(gtidStr string) (GTIDSet, error) {
 
 	return GTIDSet{gs.(*gmysql.MysqlGTIDSet)}, nil
 }
-
 
 func getTxnIDFromGTIDStr(gtidStr, serverUUID string) (int64, error) {
 
@@ -204,7 +204,6 @@ func getTxnIDFromGTIDStr(gtidStr, serverUUID string) (int64, error) {
 	// assume the gtidset is continuous, only pick the last one
 	return uuidSet.Intervals[intervalLen-1].Stop, nil
 }
-
 
 //---------------------------------MySQL Agent API ----------------------------------
 func getMysqlAgent(agentapi string) (result bool) {
@@ -278,7 +277,6 @@ func getInstanceGroupMaster(cfg *Config) (map[string]string, error) {
 	return masterInfo, nil
 }
 
-
 //from etcd  get single master mode
 func getSingleMasterMode(cfg *Config) (bool, error) {
 	client, err := initEtcdClient(cfg.EtcdURLs, cfg.EtcdUsername, cfg.EtcdPassword)
@@ -292,9 +290,7 @@ func getSingleMasterMode(cfg *Config) (bool, error) {
 			os.Exit(-1)
 		}
 		if len(resp.Kvs) <= 0 {
-			return false,nil
-		} else {
-			return true, nil
+			return false, nil
 		}
 	}
 	return true, nil
@@ -340,24 +336,24 @@ func prefixSwitchCheck(cfg *Config, masterNode map[string]string, slaveNode []st
 		return false, err
 	}
 	if masterThreadsRuning > maxRuningThred {
-		logger.Error(masterNode["ip"] + ":" + masterNode["port"] + " master running thread  greater than" +strconv.FormatInt(maxRuningThred,10)+",plan switch exit")
+		logger.Error(masterNode["ip"] + ":" + masterNode["port"] + " master running thread  greater than" + strconv.FormatInt(maxRuningThred, 10) + ",plan switch exit")
 		return false, nil
 	} else {
-		logger.Info(masterNode["ip"] + ":" + masterNode["port"] + " master running thread is below "+strconv.FormatInt(maxRuningThred,10)+",check continue")
+		logger.Info(masterNode["ip"] + ":" + masterNode["port"] + " master running thread is below " + strconv.FormatInt(maxRuningThred, 10) + ",check continue")
 	}
 
 	// get show master status info
-	serverUUID,err := getServerUUID(masterDBInfo)
+	serverUUID, err := getServerUUID(masterDBInfo)
 	if err != nil {
 		logger.Error(err.Error())
 	}
-	_,_,mastergtid,err := masterStatus(masterDBInfo)
+	_, _, mastergtid, err := masterStatus(masterDBInfo)
 	if err != nil {
 		logger.Error(err.Error())
 	}
 	for i := 0; i < len(slaveNode); i++ {
 		var (
-			masterGtidEvent int64
+			masterGtidEvent   int64
 			executedLasteGtid int64
 		)
 		slaveIP := strings.Split(slaveNode[i], ":")[0]
@@ -374,29 +370,30 @@ func prefixSwitchCheck(cfg *Config, masterNode map[string]string, slaveNode []st
 			logger.Error(slaveNode[i] + " Slave_IO_Running: " + slaveinfo["Slave_IO_Running"] + " Slave_SQL_Running:" + slaveinfo["Slave_SQL_Running"] + " ,plan switch exit")
 			return false, nil
 		}
-		masterGtidEvent, err = getTxnIDFromGTIDStr(mastergtid,serverUUID)
+		masterGtidEvent, err = getTxnIDFromGTIDStr(mastergtid, serverUUID)
 		if err != nil {
 			logger.Error(err.Error())
-			return false ,nil
+			return false, nil
 		}
-		executedLasteGtid, err = getTxnIDFromGTIDStr(slaveinfo["Executed_Gtid_Set"],serverUUID)
+		executedLasteGtid, err = getTxnIDFromGTIDStr(slaveinfo["Executed_Gtid_Set"], serverUUID)
 		if err != nil {
 			logger.Error(err.Error())
-			return false ,nil
+			return false, nil
 		}
-		gtidNotExec:=masterGtidEvent-executedLasteGtid
-		strGtidNotExec := strconv.FormatInt(gtidNotExec,10)
-		strmaxNotExecGtid := strconv.FormatInt(maxNotExecGtid,10)
+		gtidNotExec := masterGtidEvent - executedLasteGtid
+		strGtidNotExec := strconv.FormatInt(gtidNotExec, 10)
+		strmaxNotExecGtid := strconv.FormatInt(maxNotExecGtid, 10)
 		if gtidNotExec >= maxNotExecGtid {
-			diffGtidEvent := fmt.Sprintf("%s this node has %s gitd event not exec,greater than %s",slaveIP,strGtidNotExec,strmaxNotExecGtid)
+			diffGtidEvent := fmt.Sprintf("%s this node has %s gitd event not exec,greater than %s", slaveIP, strGtidNotExec, strmaxNotExecGtid)
 			logger.Error(diffGtidEvent)
-			return false,nil
+			return false, nil
 		} else {
-			diffGtidEvent := fmt.Sprintf("%s this node has %s gitd event not exec,less than %s",slaveIP,strGtidNotExec,strmaxNotExecGtid)
+			diffGtidEvent := fmt.Sprintf("%s this node has %s gitd event not exec,less than %s", slaveIP, strGtidNotExec, strmaxNotExecGtid)
 			logger.Info(diffGtidEvent)
+			return true, nil
 		}
 	}
-	return true, nil
+
 }
 
 func checkConsistency(cfg *Config, masterNode map[string]string, slaveNode []string) (bool, error) {
@@ -405,12 +402,12 @@ func checkConsistency(cfg *Config, masterNode map[string]string, slaveNode []str
 	masterdb, err := CreateDB(cfg.Db.MysqlUser, cfg.Db.MysqlPwd, masterNode["ip"], masterport)
 	binlogFileName, binlogPos, masterGtid, err := masterStatus(masterdb)
 	// get show master status info
-	serverUUID,err := getServerUUID(masterdb)
+	serverUUID, err := getServerUUID(masterdb)
 	if err != nil {
 		logger.Error(err.Error())
-		return false,err
+		return false, err
 	}
-	intMasterGtid ,err = getTxnIDFromGTIDStr(masterGtid,serverUUID)
+	intMasterGtid, err = getTxnIDFromGTIDStr(masterGtid, serverUUID)
 	if err != nil {
 		logger.Error(err.Error())
 	}
@@ -436,12 +433,12 @@ func checkConsistency(cfg *Config, masterNode map[string]string, slaveNode []str
 			return false, err
 		}
 
-		executedLasteGtid, err = getTxnIDFromGTIDStr(slaveinfo["Executed_Gtid_Set"],serverUUID)
+		executedLasteGtid, err = getTxnIDFromGTIDStr(slaveinfo["Executed_Gtid_Set"], serverUUID)
 		if err != nil {
 			logger.Error(err.Error())
 		}
-		gtidNotExec:=intMasterGtid-executedLasteGtid
-		if slaveinfo["Relay_Master_Log_File"] == binlogFileName && slaveinfo["Exec_Master_Log_Pos"] == strBinlogPos  && gtidNotExec == 0 {
+		gtidNotExec := intMasterGtid - executedLasteGtid
+		if slaveinfo["Relay_Master_Log_File"] == binlogFileName && slaveinfo["Exec_Master_Log_Pos"] == strBinlogPos && gtidNotExec == 0 {
 			logger.Info(slaveNode[i] + " slave is approve master,check OK")
 		} else {
 			logger.Info(slaveNode[i] + " slave is not approve master,check fail")

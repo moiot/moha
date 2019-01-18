@@ -1,36 +1,35 @@
 package main
 
-//1、toml配置文件读取  --done
-//2、获取etcd中切换的最新点位  --done
-//3、生成新的配置文件
-//4、调取flashback
-//5、重新通过正常docker-compose file启动文件
-
 import (
 	"bufio"
 	"context"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
+
 	"github.com/BurntSushi/toml"
 	"github.com/coreos/etcd/clientv3"
-	"io"
+
 	//"io/ioutil"
 	"database/sql"
 	"encoding/json"
+
 	_ "github.com/go-sql-driver/mysql"
+
 	//etr "github.com/juju/errors"
-	gmysql "github.com/siddontang/go-mysql/mysql"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
 	"time"
+
+	gmysql "github.com/siddontang/go-mysql/mysql"
 )
 
 var (
-	h bool
-	instanceport string
+	h               bool
+	instanceport    string
 	binlogbackupdir string
 )
 
@@ -55,6 +54,7 @@ const (
 	recoveryComposeFile = "/etc/recoverycomposefile.yml"
 )
 
+//mysql show  master status
 type MysqlCurrentStat struct {
 	BinlogFile string `json:"File"`
 	BinlogPos  string `json:"Pos"`
@@ -62,6 +62,7 @@ type MysqlCurrentStat struct {
 	UUID       string `json:"UUID"`
 }
 
+// mysql connect info
 type DBConfig struct {
 	MysqlHost string `toml:"host" json:"host"`
 	MysqlUser string `toml:"user" json:"user"`
@@ -69,6 +70,7 @@ type DBConfig struct {
 	MysqlPort int    `toml:"port" json:"port"`
 }
 
+// agent config info
 type Config struct {
 	EtcdURLs     string   `toml:"etcd-urls" json:"etcd-urls"`
 	EtcdRootPath string   `toml:"etcd-root-path" json:"etcd-root-path"`
@@ -79,21 +81,25 @@ type Config struct {
 	Db           DBConfig `toml:"db-config" json:"db-config"`
 }
 
+//padder main config
 type WriteConfig struct {
 	PadderConfig PadderConfig `toml:"padder" json:"padder"`
 }
 
+//padder setting config
 type PadderConfig struct {
 	BinLogList   []string     `toml:"binlog-list" json:"binlog-list"`
 	EnableDelete bool         `toml:"enable-delete" json:"enable-delete"`
 	MySQLConfig  *MySQLConfig `toml:"mysql" json:"mysql"`
 }
 
+//padder dest  main mysql config
 type MySQLConfig struct {
 	Target        *DBConfigNewMaster   `toml:"target" json:"target"`
 	StartPosition *MySQLBinlogPosition `toml:"start-position" json:"start-position"`
 }
 
+// padder dest mysql config
 type DBConfigNewMaster struct {
 	Host     string `toml:"host" json:"host"`
 	Location string `toml:"location" json:"location"`
@@ -103,6 +109,7 @@ type DBConfigNewMaster struct {
 	Schema   string `toml:"schema" json:"schema"`
 }
 
+//padder dest mysql binlog config
 type MySQLBinlogPosition struct {
 	BinLogFileName string `toml:"binlog-name" json:"binlog-name"`
 	BinLogFilePos  uint32 `toml:"binlog-pos" json:"binlog-pos"`
@@ -165,11 +172,11 @@ func GetEtcdSwitchInfo(cfg *Config, filePath string) (map[string]string, error) 
 	err = json.Unmarshal([]byte(resp.Kvs[0].Value), &currentstat)
 	fmt.Println(err)
 	MohaConInfo := strings.Split(string(resp.Kvs[0].Key), "/")
-	MohaSwitchIpPort := MohaConInfo[len(MohaConInfo)-1]
-	if MohaSwitchIpPort == "" {
-		return mp, errors.New("MohaSwitchIpPort is null")
+	MohaSwitchIPPort := MohaConInfo[len(MohaConInfo)-1]
+	if MohaSwitchIPPort == "" {
+		return mp, errors.New("MohaSwitchIPPort is null")
 	}
-	if MohaSwitchIpPort == cfg.EtcdHostPort {
+	if MohaSwitchIPPort == cfg.EtcdHostPort {
 		return mp, errors.New("current node is not switch node,please check")
 	}
 	MohaPosInfo := strings.Split(string(resp.Kvs[0].Value), ",\"")
@@ -180,8 +187,8 @@ func GetEtcdSwitchInfo(cfg *Config, filePath string) (map[string]string, error) 
 	mp["MohaSwitchFile"] = currentstat.BinlogFile
 	mp["MohaSwitchPost"] = currentstat.BinlogPos
 	mp["MohaSwitchGtid"] = currentstat.BinlogGtid
-	mp["MohaNewMasterIp"] = strings.Split(MohaSwitchIpPort, ":")[0]
-	mp["MohaNewMasterPort"] = strings.Split(MohaSwitchIpPort, ":")[1]
+	mp["MohaNewMasterIp"] = strings.Split(MohaSwitchIPPort, ":")[0]
+	mp["MohaNewMasterPort"] = strings.Split(MohaSwitchIPPort, ":")[1]
 	return mp, nil
 }
 
@@ -209,9 +216,9 @@ func CreateRecoveryDockerConf(sourceComposeFile string, recoveryComposeFile stri
 			break
 		} else if strings.Contains(string(a), "entrypoint") {
 			var strMysqlStart string
-			strMysqlStart = "mysqld --defaults-file=/etc/my_"+mysqlport+".cnf\n"
-			strEntryPoint := strings.Replace(string(a), "/agent/supervise", strMysqlStart, 1 )
-			fmt.Println(strEntryPoint)
+			strMysqlStart = "mysqld --defaults-file=/etc/my_" + mysqlport + ".cnf\n"
+			strEntryPoint := strings.Replace(string(a), "/agent/supervise", strMysqlStart, 1)
+			//fmt.Println(strEntryPoint)
 			_, err := io.WriteString(recoveryOpenFile, strEntryPoint)
 			if err != nil {
 				return errors.New("write New recovery file fail")
@@ -256,11 +263,11 @@ func CreateDB(cfg DBConfig) (*sql.DB, error) {
 	}
 	return db, nil
 }
+
 //new master
 // CreateDB creates db connection using the cfg
-func createNewMasterDB(user ,passwd,host,port string) (*sql.DB, error) {
-	dbDSN := fmt.Sprintf("%s:%s@tcp(%s:%d)/?charset=utf8&interpolateParams=true",
-		cfg.MysqlUser, cfg.MysqlPwd, cfg.MysqlHost, cfg.MysqlPort)
+func createNewMasterDB(user, passwd, host string, port int) (*sql.DB, error) {
+	dbDSN := fmt.Sprintf("%s:%s@tcp(%s:%d)/?charset=utf8&interpolateParams=true", user, passwd, host, port)
 	db, err := sql.Open("mysql", dbDSN)
 	//fmt.Println(dbDSN)
 	if err != nil {
@@ -268,8 +275,6 @@ func createNewMasterDB(user ,passwd,host,port string) (*sql.DB, error) {
 	}
 	return db, nil
 }
-
-
 
 // CloseDB closes the db connection
 func CloseDB(db *sql.DB) error {
@@ -384,9 +389,6 @@ func getBinlogList(cfg *Config, strBinlogFile string) ([]string, error) {
 		return binlogSlice, errors.New(err.Error())
 	}
 	fmt.Println(strconv.FormatInt(binlogStrNum, 10))
-	//binlogStrNumLen := strings.Count(strconv.FormatInt(binlogStrNum, 10), "") - 1
-	//binlogStpNumLen := strings.Count(strconv.FormatInt(binlogStpNum, 10), "") - 1
-	//fmt.Println(binlogStrNumLen, binlogStpNumLen)
 	for i := binlogStrNum; i <= binlogStpNum; i++ {
 		iStr := strconv.FormatInt(i, 10)
 		iStrLen := strings.Count(iStr, "") - 1
@@ -412,9 +414,6 @@ func getBinlogList(cfg *Config, strBinlogFile string) ([]string, error) {
 			fmt.Println("binlog list error,please check")
 		}
 	}
-	//oldMasterBinlogPos := fmt.Sprint(pos.Pos)
-	//oldMasterBinlogGtid := gtidSet.String()
-	//fmt.Println(binlogStpStr, binlogSlice)
 	return binlogSlice, nil
 
 }
@@ -424,21 +423,21 @@ func copyFile(source, dest string) bool {
 		fmt.Println("source or dest is null")
 		return false
 	}
-	source_open, err := os.Open(source)
+	sourceOpen, err := os.Open(source)
 	if err != nil {
 		fmt.Println(err.Error())
 		return false
 	}
-	defer source_open.Close()
-	dest_open, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY, 644)
+	defer sourceOpen.Close()
+	destOpen, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY, 644)
 	if err != nil {
 		fmt.Println(err.Error())
 		return false
 	}
-	defer dest_open.Close()
-	_, copy_err := io.Copy(dest_open, source_open)
-	if copy_err != nil {
-		fmt.Println(copy_err.Error())
+	defer destOpen.Close()
+	_, copyErr := io.Copy(destOpen, sourceOpen)
+	if copyErr != nil {
+		fmt.Println(copyErr.Error())
 		return false
 	} else {
 		return true
@@ -447,23 +446,25 @@ func copyFile(source, dest string) bool {
 
 func main() {
 
-	//命令行参数加载
 	flag.Parse()
 	if h {
 		flag.Usage()
 		os.Exit(-1)
 	}
-	mysqlport := instanceport
-	filePath := "/etc/" + instanceport + "_config.toml"
-	sourceComposeFile := "/etc/" + instanceport + "_docker-compose.yml"
-	//配置文件参数初始化
-	cfg := &Config{}
-	_, err := toml.DecodeFile(filePath, cfg)
+	intMysqlPort, err := strconv.Atoi(instanceport)
 	if err != nil {
 		fmt.Println(err.Error())
 		os.Exit(-1)
 	}
-	//mysqlDataDir := "/data1/mysql/" + cfg.EtcdCluster + "/"
+	filePath := "/etc/" + instanceport + "_config.toml"
+	sourceComposeFile := "/etc/" + instanceport + "_docker-compose.yml"
+	//配置文件参数初始化
+	cfg := &Config{}
+	_, err = toml.DecodeFile(filePath, cfg)
+	if err != nil {
+		fmt.Println(err.Error())
+		os.Exit(-1)
+	}
 
 	writecfg := &WriteConfig{}
 	//判断生产环境docker容器是否处于运行状态，如果处于运行状态，则停止所有动作
@@ -484,16 +485,15 @@ func main() {
 		os.Exit(-1)
 	}
 	//mp["MohaNewMasterIp"]
-	newMasterInfo, err := createNewMasterDB(cfg.Db.MysqlUser, cfg.Db.MysqlPwd, mp["MohaNewMasterIp"], mp["MohaNewMasterPort"] )
-	mysqlDataDir,err := getServerDataDir(newMasterInfo)
+	newMasterInfo, err := createNewMasterDB(cfg.Db.MysqlUser, cfg.Db.MysqlPwd, mp["MohaNewMasterIp"], intMysqlPort)
+	mysqlDataDir, err := getServerDataDir(newMasterInfo)
 	if nil != nil {
 		fmt.Println(err.Error())
 		os.Exit(-1)
 	}
 
-
 	//通过生产使用的docker compose file，生成做flashback需要使用的compose文件，降低出错几率
-	err = CreateRecoveryDockerConf(sourceComposeFile, recoveryComposeFile, mysqlport)
+	err = CreateRecoveryDockerConf(sourceComposeFile, recoveryComposeFile, instanceport)
 	if err != nil {
 		fmt.Println(err.Error())
 	}
@@ -551,7 +551,7 @@ func main() {
 	}
 
 	for _, i := range binlogFlashbackSlice {
-		flashbackMysql := "mysqlbinlog --skip-gtids " + i + " | mysql -u " + cfg.Db.MysqlUser + " -p" + cfg.Db.MysqlPwd + " -h" + cfg.Db.MysqlHost + " -P" + mysqlport
+		flashbackMysql := "mysqlbinlog --skip-gtids " + i + " | mysql -u " + cfg.Db.MysqlUser + " -p" + cfg.Db.MysqlPwd + " -h" + cfg.Db.MysqlHost + " -P" + instanceport
 		fmt.Println(flashbackMysql)
 		_, err := linuxSystemCommand(flashbackMysql)
 		fmt.Println(flashbackMysql)

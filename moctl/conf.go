@@ -1,24 +1,21 @@
 package main
 
 import (
-	//"encoding/base64"
 	"flag"
 	"fmt"
-	"github.com/BurntSushi/toml"
 	"logger"
-	"gopkg.in/yaml.v2"
 	"os"
-	//"reflect"
 	"strconv"
 	"strings"
-	//"unsafe"
-	//"time"
+
+	"github.com/BurntSushi/toml"
 )
 
 const (
-	DefaultName   = "conf.toml"
+	defaultName = "conf.toml"
 )
 
+// conf
 type AgentConfig struct {
 	*flag.FlagSet
 	MysqlConf  MysqlConf  `toml:"mysql" json:"mysql"`
@@ -32,33 +29,33 @@ type MysqlConf struct {
 	Port         string `toml:"port" json:"port"`
 	InstanceName string `toml:"instancename" json:"instancename"`
 	BufferPool   string `toml:"bufferpool" json:"bufferpool"`
-	SqlMode      string `toml:"sqlmode" json:"sqlmode"`
-	DataDir      string  `toml:"datadir" json:"datadir"`
+	SQLMode      string `toml:"sqlmode" json:"sqlmode"`
+	DataDir      string `toml:"datadir" json:"datadir"`
 }
 
 type AgentConf struct {
-	HostAddress  string `toml:"hostaddress" json:"hostaddress"`
-	Port         string `toml:"port" json:"port"`
-	InstanceName string `toml:"instancename" json:"instancename"`
-	ProxyName    string `toml:"proxyname" json:"proxyname"`
-	EtcdUrl      string `toml:"etcdurl" json:"etcdurl"`
-	EtcdUser     string `toml:"etcduser" json:"etcduser"`
-	EtcdPasswd   string `toml:"etcdpasswd" json:"etcdpasswd"`
-	AgentUser    string `toml:"agentuser" json:"agentuser"`
-	AgentPasswd  string `toml:"agentpasswd"  json:"agentpasswd"`
-	MysqlReplUser string `toml:"mysqlrepluser" json:"mysqlrepluser"`
+	HostAddress     string `toml:"hostaddress" json:"hostaddress"`
+	Port            string `toml:"port" json:"port"`
+	InstanceName    string `toml:"instancename" json:"instancename"`
+	ProxyName       string `toml:"proxyname" json:"proxyname"`
+	EtcdURL         string `toml:"etcdurl" json:"etcdurl"`
+	EtcdUser        string `toml:"etcduser" json:"etcduser"`
+	EtcdPasswd      string `toml:"etcdpasswd" json:"etcdpasswd"`
+	AgentUser       string `toml:"agentuser" json:"agentuser"`
+	AgentPasswd     string `toml:"agentpasswd"  json:"agentpasswd"`
+	MysqlReplUser   string `toml:"mysqlrepluser" json:"mysqlrepluser"`
 	MysqlReplPasswd string `toml:"mysqlreplpasswd" json:"mysqlreplpasswd"`
-	DataDir string `toml:"datador" json:"datadir"`
+	DataDir         string `toml:"datador" json:"datadir"`
 }
 
 type DockerConf struct {
-	Port         string `toml:"port" json:"port"`
-	InstanceName string `toml:"instancename" json:"instancename"`
-	Version      string `toml:"version" json:"version"`
-	DataDir      string `toml:"datadir" json:"datadir"`
-	AgentUser    string `toml:"agentuser" json:"agentuser"`
-	AgentPasswd  string `toml:"agentpasswd"  json:"agentpasswd"`
-	MysqlReplUser string `toml:"mysqlrepluser" json:"mysqlrepluser"`
+	Port            string `toml:"port" json:"port"`
+	InstanceName    string `toml:"instancename" json:"instancename"`
+	Version         string `toml:"version" json:"version"`
+	DataDir         string `toml:"datadir" json:"datadir"`
+	AgentUser       string `toml:"agentuser" json:"agentuser"`
+	AgentPasswd     string `toml:"agentpasswd"  json:"agentpasswd"`
+	MysqlReplUser   string `toml:"mysqlrepluser" json:"mysqlrepluser"`
 	MysqlReplPasswd string `toml:"mysqlreplpasswd" json:"mysqlreplpasswd"`
 	MysqlRootPasswd string `toml:"mysqlrootpasswd" json:"mysqlrootpasswd"`
 }
@@ -130,7 +127,7 @@ type MySQLCfg struct {
 
 type MySQLPara struct {
 	User                              string `toml:"user" json:"user"`
-	SqlMode                           string `toml:"sql_mode" json:"sql_mode"`
+	SQLMode                           string `toml:"sql_mode" json:"sql_mode"`
 	AutoCommit                        int    `toml:"autocommit" json:"autocommit"`
 	InitConnect                       string `toml:"init_connect" json:"init_connect"`
 	CharacterSetServer                string `toml:"character_set_server" json:"character_set_server"`
@@ -140,7 +137,7 @@ type MySQLPara struct {
 	LowerCaseTableNames               int    `toml:"lower_case_table_names" json:"lower_case_table_names"`
 	BindAddress                       string `toml:"bind-address" json:"bind-address"`
 	ReportHost                        string `toml:"report_host" json:"report_host"`
-	ServerId                          int    `toml:"server-id" json:"server-id"`
+	ServerID                          int    `toml:"server-id" json:"server-id"`
 	Port                              int    `toml:"port" json:"port"`
 	Socket                            string `toml:"socket" json:"socket"`
 	PidFile                           string `toml:"pid-file" json:"pid-file"`
@@ -244,14 +241,14 @@ type MySQLPara struct {
 func NewConfig() *AgentConfig {
 	cfg := &AgentConfig{}
 
-	cfg.FlagSet = flag.NewFlagSet(DefaultName, flag.ContinueOnError)
+	cfg.FlagSet = flag.NewFlagSet(defaultName, flag.ContinueOnError)
 	fs := cfg.FlagSet
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage of %s:\n", DefaultName)
+		fmt.Fprintf(os.Stderr, "Usage of %s:\n", defaultName)
 		fs.PrintDefaults()
 	}
 	// misc related configuration.
-	fs.StringVar(&cfg.configFile, "config", "", fmt.Sprintf("path to the %s configuration file", DefaultName))
+	fs.StringVar(&cfg.configFile, "config", "", fmt.Sprintf("path to the %s configuration file", defaultName))
 	return cfg
 }
 
@@ -293,7 +290,7 @@ func CreateComposeConf(cfg *AgentConfig) error {
 	volumes3 := cfg.DockerConf.DataDir + cfg.DockerConf.Port + "_agentlog:/agent/log:rw"
 	volumes4 := "/etc/my_" + cfg.DockerConf.Port + ".cnf:/etc/my_" + cfg.DockerConf.Port + ".cnf"
 	volumes5 := "/tmp:/tmp"
-	volumes6 := cfg.DockerConf.DataDir+":"+cfg.DockerConf.DataDir
+	volumes6 := cfg.DockerConf.DataDir + ":" + cfg.DockerConf.DataDir
 	volumes7 := "/etc/localtime:/etc/localtime:ro"
 	Volumes := []string{volumes1, volumes2, volumes3, volumes4, volumes5, volumes6, volumes7}
 	composecfg := &CreateDockerCfg{
@@ -357,7 +354,7 @@ func CreateAgentConf(cfg *AgentConfig) error {
 		ShutdownThreshold:     5,
 		DataDir:               DataDir,
 		ListenAddr:            ListenAddr,
-		EtcdURLs:              cfg.AgentConf.EtcdUrl,
+		EtcdURLs:              cfg.AgentConf.EtcdURL,
 		RegisterTTL:           10,
 		EtcdRootPath:          EtcdRootPath,
 		EtcdUsername:          cfg.AgentConf.EtcdUser,
@@ -394,7 +391,7 @@ func CreateAgentConf(cfg *AgentConfig) error {
 }
 
 func CreateMySQLConf(cfg *AgentConfig) error {
-	var ServerId string
+	var ServerID string
 	IntPort, err := strconv.Atoi(cfg.MysqlConf.Port)
 	if err != nil {
 		logger.Error(err.Error())
@@ -405,14 +402,14 @@ func CreateMySQLConf(cfg *AgentConfig) error {
 		os.Exit(2)
 	}
 	ConFilePre := "/etc/my_" + cfg.MysqlConf.Port + ".cnf"
-	SqlMode := cfg.MysqlConf.SqlMode
+	SQLMode := cfg.MysqlConf.SQLMode
 	BindAddress := cfg.MysqlConf.HostAddress
 	if StrSplitHostAddress[2] == "0" {
-		ServerId = "1" + StrSplitHostAddress[3] + cfg.MysqlConf.Port
+		ServerID = "1" + StrSplitHostAddress[3] + cfg.MysqlConf.Port
 	} else {
-		ServerId = StrSplitHostAddress[2] + StrSplitHostAddress[3] + cfg.MysqlConf.Port
+		ServerID = StrSplitHostAddress[2] + StrSplitHostAddress[3] + cfg.MysqlConf.Port
 	}
-	IntServerId, err := strconv.Atoi(ServerId)
+	IntServerID, err := strconv.Atoi(ServerID)
 	if err != nil {
 		logger.Error(err.Error())
 		os.Exit(2)
@@ -424,7 +421,7 @@ func CreateMySQLConf(cfg *AgentConfig) error {
 	mysqlcfg := &MySQLCfg{}
 	mysqlcfg.MySQLPara = MySQLPara{
 		User:                              "mysql",
-		SqlMode:                           SqlMode,
+		SQLMode:                           SQLMode,
 		AutoCommit:                        1,
 		InitConnect:                       "SET NAMES utf8mb4",
 		CharacterSetServer:                "utf8mb4",
@@ -434,7 +431,7 @@ func CreateMySQLConf(cfg *AgentConfig) error {
 		LowerCaseTableNames:               1,
 		BindAddress:                       BindAddress,
 		ReportHost:                        BindAddress,
-		ServerId:                          IntServerId,
+		ServerID:                          IntServerID,
 		Port:                              IntPort,
 		Socket:                            Socket,
 		PidFile:                           PidFile,
@@ -577,13 +574,12 @@ func main() {
 	mysqlconf := "/etc/my_" + cfg.MysqlConf.Port + ".cnf"
 	agentconf := "/etc/" + cfg.AgentConf.Port + "_config.toml"
 	composeconf := "/etc/" + cfg.DockerConf.Port + "_docker-compose.yml"
-	b_mysql, _ := PathExists(mysqlconf)
-	b_agent, _ := PathExists(agentconf)
-	b_compse, _ := PathExists(composeconf)
-	//fmt.Println(b_mysql, b_agent, b_compse)
-	if b_mysql != false || b_agent != false || b_compse != false {
-		logger.Error("配置文件已存在")
-		fmt.Println("配置文件已存在")
+	fileMySQL, _ := PathExists(mysqlconf)
+	fikeAgent, _ := PathExists(agentconf)
+	fileCompose, _ := PathExists(composeconf)
+	if fileMySQL != false || fikeAgent != false || fileCompose != false {
+		logger.Error("configure file existed")
+		fmt.Println("configure file existed")
 		os.Exit(2)
 	}
 	err := CreateMySQLConf(cfg)
