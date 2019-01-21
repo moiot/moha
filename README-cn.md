@@ -58,7 +58,7 @@ Docker image is already available on [Dockerhub](https://cloud.docker.com/u/moio
 
 最新版本 `v2.4.0`，可执行 `docker pull moiot/moha:v2.4.0` 下载镜像
  
-配置文件与运行脚本见 [运维指导](docs/operation.md)
+配置文件与运行脚本见 [运维指导](docs/product-install.md)
 
 **依赖**
 - 运行时依赖 [Docker](https://www.docker.com/)。推荐安装最新版本的 Docker
