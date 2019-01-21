@@ -226,11 +226,7 @@ func InitLogger(filename string) error {
 	if err := l.OpenLogFile(); err != nil {
 		return err
 	}
-	/*
-		if err := l.ConnectMysql(); err != nil {
-			return nil
-		}
-	*/
+
 
 	//l.WriteToMysqlRoutine()
 	globalLoggerInstance = l

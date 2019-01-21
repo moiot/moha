@@ -10,7 +10,7 @@ GO      := GO15VENDOREXPERIMENT="1" go
 GOBUILD := $(GO) build
 GOTEST  := $(GO) test
 
-GOFILTER  := grep -vE 'vendor'
+GOFILTER  := grep -vE 'vendor|moctl'
 GOCHECKER := $(GOFILTER) | awk '{ print } END { if (NR > 0) { exit 1 } }'
 
 CPPLINT := cpplint --quiet --filter=-readability/casting,-build/include_subdir
@@ -18,7 +18,7 @@ CFILES := supervise/*.c
 
 DOCKER-COMPOSE := docker-compose -p moha -f etc/docker-compose/docker-compose.yaml
 
-PACKAGES := $$(go list ./...| grep -vE 'vendor|cmd')
+PACKAGES := $$(go list ./...| grep -vE 'vendor|cmd|moctl')
 FILES    := $$(find . -name '*.go' -type f | grep -vE 'vendor')
 
 TAG := $(shell git rev-parse --abbrev-ref HEAD | tr / -)-$(shell git rev-parse --short HEAD)
@@ -65,7 +65,7 @@ checker-test:
 
 test:
 	@echo "test"
-	$(GOTEST) --race --cover $(PACKAGES)
+	$(GOTEST) --race --cover -coverprofile=coverage.txt -covermode=atomic $(PACKAGES)
 
 lint:
 	@echo "gofmt check"
@@ -116,11 +116,11 @@ release:
 tag:
 	git tag $(TAG)
 	git push origin refs/tags/$(TAG)
-	git push github refs/tags/$(TAG) || true
 
 docker-image:
 	@ make docker-agent
-	@ docker build -t moiot/moha:$(TAG) ./etc/docker-compose/agent
+	@ docker build -t moiot/moha:$(TAG) -f ./etc/docker-compose/agent/Dockerfile.production ./etc/docker-compose/agent
+
 
 env-up:
 	@ echo "start etcd cluster"
@@ -178,10 +178,10 @@ monitor:
 	@ docker exec mysql-node-3 pmm-admin add mysql --user mysql_user --password mysql_master_user_pwd node-test_mysql_3
 	@ echo "add etcd in prometheus config"
 	@ docker cp ./etc/docker-compose/prometheus-etcd.yml pmm-server:/etc/
-	@ docker exec -w /etc pmm-server sed -i '/scrape_configs:/r prometheus-etcd.yml' prometheus.yml
+	@ docker exec pmm-server sed -i '/scrape_configs:/r /etc/prometheus-etcd.yml' /etc/prometheus.yml
 	@ echo "add mysql-agent in prometheus config"
 	@ docker cp ./etc/docker-compose/prometheus-mysql-agent.yml pmm-server:/etc/
-	@ docker exec -w /etc pmm-server sed -i '/scrape_configs:/r prometheus-mysql-agent.yml' prometheus.yml
+	@ docker exec pmm-server sed -i '/scrape_configs:/r /etc/prometheus-mysql-agent.yml' /etc/prometheus.yml
 	@ docker restart pmm-server
 	@ echo "register mysql-agent"
 	@ until curl 127.0.0.1:8500/v1/catalog/nodes >/dev/null 2>&1; do sleep 1; echo "Waiting for pmm-server to come up..."; done;
@@ -189,9 +189,9 @@ monitor:
 	@ curl -X PUT -d '{"id": "node-test_agent_2","name": "mysql-agent:metrics", "address": "mysql-node-2","port": 13306,"tags": ["mysql-agent"],"checks": [{"http": "http://mysql-node-2:13306/","interval": "5s"}]}' http://127.0.0.1:8500/v1/agent/service/register
 	@ curl -X PUT -d '{"id": "node-test_agent_3","name": "mysql-agent:metrics", "address": "mysql-node-3","port": 13306,"tags": ["mysql-agent"],"checks": [{"http": "http://mysql-node-3:13306/","interval": "5s"}]}' http://127.0.0.1:8500/v1/agent/service/register
 	@ echo "import mysql-agent monitor dashboard"
-	@ python etc/monitor/import-dashboard.py -f  etc/monitor/go-processes.json
-	@ python etc/monitor/import-dashboard.py -f  etc/monitor/mysql-agent.json
-	@ python etc/monitor/import-dashboard.py -f  etc/monitor/etcd_rev3.json
+	@ python etc/monitor/import-dashboard.py -f etc/monitor/go-processes.json
+	@ python etc/monitor/import-dashboard.py -f etc/monitor/mysql-agent.json
+	@ python etc/monitor/import-dashboard.py -f etc/monitor/etcd_rev3.json
 
 demo:
 	@ make clean-data
@@ -201,6 +201,7 @@ demo:
 
 clean-data:
 	@ $(DOCKER-COMPOSE) rm -vsf || true
+	@ docker volume prune -f
 	@ docker volume rm moha_mysql-node-1-data || true
 	@ docker volume rm moha_mysql-node-2-data || true
 	@ docker volume rm moha_mysql-node-3-data || true

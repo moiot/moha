@@ -3,6 +3,7 @@ sudo: enabled
 language: go
 go:
   - "1.11"
+  - tip
 
 services:
   - docker
@@ -10,6 +11,8 @@ services:
 jobs:
   include:
   - stage: tests
+    before_install:
+    - go get -t -v `go list ./...| grep -vE 'vendor|cmd|moctl'`
     install:
     - sudo pip install cpplint
     - make init
@@ -30,9 +33,11 @@ jobs:
     script:
     - make lint
     - make docker-agent
-    - docker run --rm --name make_test -v `pwd`:/go/src/github.com/moiot/moha -w /go/src/github.com/moiot/moha golang:1.11.0 make test
+    - make test
     - docker build etc/mysql-image/5.7.22-pmm/ -t moiot/mysql:5.7.22-pmm
     - make integration-test || { tail -n 200 logs/mysql-*.log; sleep 10; exit 1; }
+    after_success:
+    - bash <(curl -s https://codecov.io/bash)
     after_failure:
     - make clean-data
 
@@ -48,7 +53,7 @@ jobs:
     - echo "$TRAVIS_BRANCH v.s $TRAVIS_TAG"
     - echo "$DOCKER_IMAGE"
     - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
-    - docker build -t $DOCKER_IMAGE ./etc/docker-compose/agent
+    - docker build -t $DOCKER_IMAGE -f ./etc/docker-compose/agent/Dockerfile.production ./etc/docker-compose/agent
     - docker push $DOCKER_IMAGE
     - docker image rm $DOCKER_IMAGE
     - docker image prune -f
