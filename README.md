@@ -47,7 +47,7 @@ Docker image is already available on [Dockerhub](https://cloud.docker.com/u/moio
 
 Latest image tag is  `v2.4.0`, run `docker pull moiot/moha:v2.4.0` to pull the image
  
-config and start/stop scripts refers to [operation doc](docs/operation.md)
+config and start/stop scripts refers to [operation doc](docs/product-install.md)
 
 **Runtime Dependencies**
 - [Docker](https://www.docker.com/) recommended with the latest version
