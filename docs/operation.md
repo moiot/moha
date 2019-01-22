@@ -1,36 +1,8 @@
 ## 运维指导
 
-
-### 发版
-
 MoHA 的发布是基于 MySQL 的 docker 镜像，所以发布的是 `moiot/moha:<tag>` 的镜像格式
 
-#### 基础镜像配置
-**第一次**打包镜像的时候需要执行下面命令，配置基础镜像
-```bash
-docker pull gcc:8.1.0
-docker pull golang:1.11.0
-docker pull quay.io/coreos/etcd:v3.3.2
-docker build etc/etcd-image/v3.3.2/ -t moiot/etcd:v3.3.2
-docker build etc/mysql-image/5.7.22-pmm/ -t moiot/mysql:5.7.22-pmm
-```
-
-之后可以执行 `make release` 查看指导
-
-执行 `python release.py {version}` 就会在本地的 repo 打一个名字为 "{version}" 的 tag 并推送到 git 仓库。
-如果 repo 是 gitlab 的话会执行 CI 来 build 镜像并 push。详情可见 [.gitlab-ci.yml](../.gitlab-ci.yml)
-否则需要手工执行
-```
-    # 编译
-    make docker-agent
-    # build 镜像
-    docker build -t $docker_image ./etc/docker-compose/agent
-    # 上传镜像至仓库
-    docker push $docker_image
-    # clean up
-    docker image rm $docker_image
-    docker image prune -f
-```
+目前最新版可通过 `docker pull moiot/moha:v2.4.0` 获取。
 
 ### 部署
 因为 agent 是基于 docker 的，所以部署时只需要 
@@ -40,11 +12,26 @@ docker build etc/mysql-image/5.7.22-pmm/ -t moiot/mysql:5.7.22-pmm
 
 即可。可以参考 [etc/docker-compose/deploy-example](../etc/docker-compose/deploy-example) 的例子。
 
+
 #### 依赖
 agent 依赖 etcd，可以参考 [https://coreos.com/etcd/](https://coreos.com/etcd/) 
 来安装和运行 etcd。**etcd 的版本需要大于等于 3.3.2**。
 
 agent 也依赖 docker，**docker 的版本最好大于等于 18.06.0-ce**。 
+
+MoHA 支持使用 HAProxy 来分别连接主库和从库。**推荐使用 1.9.0 或以上版本的 HAProxy**。
+配置可以参考 [haproxy-master.cfg](../etc/docker-compose/agent/haproxy-master.cfg) 和
+[haproxy-slave.cfg](../etc/docker-compose/agent/haproxy-slave.cfg)
+
+#### 单机房部署
+MoHA 支持单机房部署，下图是以一主一从两个 MySQL 为例。
+
+![1az](1az.png)
+
+#### 多机房部署
+MoHA 也支持多机房部署（多活架构），下图是以三个机房为例部署一主一从的 MySQL 集群。
+
+![3az](3az.png)
 
 #### 运行
 在 docker-compose.yml 的目录下执行 `docker-compose up -d` 。
@@ -72,7 +59,7 @@ agent 提供以下的 HTTP 服务
 
 主从切换需要先执行 `/setReadOnly`，如果可以进行主从切换，则执行 `/changeMaster`，
 否则执行 `/setReadWrite` 使集群恢复可读写。
-具体步骤可以参考 [tool/switch.go](../tool/switch.go) 
+具体步骤可以参考 [tool/switch.go](../moctl/switch.go) 
 
 ### 计划外主从切换发生后的人工介入
 

@@ -14,9 +14,14 @@
 *~
 .DS_Store
 
+coverage.txt
+
 bin
 
 logs/*.log
+moctl/*.log
+moctl/switch
+moctl/recovery
 
 *.iml
 .idea

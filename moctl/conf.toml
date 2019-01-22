@@ -1,0 +1,33 @@
+[mysql]
+hostaddress     = "127.0.0.4"
+port            = "3306"
+instancename     = "moha_github"
+bufferpool      = "1G"
+sqlmode      = "STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION"
+datadir      = "/data1/mysql/"
+
+[agent]
+hostaddress = "127.0.0.4"
+port        = "3306"
+instancename = "moha_github"
+proxyname = "moha_kaiyuan"
+etcdurl = "http://127.0.0.1:2379,http://127.0.0.2:2379,http://127.0.0.3:2379"
+etcduser = "root"
+etcdpasswd = "D1hmWnE29PU4wJNr" #your etcd passwd
+agentuser = "agent"
+agentpasswd = "youragentpasswd"
+mysqlrepluser = "repl"
+mysqlreplpasswd = "yourreplpasswd"
+datadir      = "/data1/mysql/"
+
+
+[docker]
+port        = "3306"
+instancename = "moha_github"
+version  = "v2.6.1"
+datadir      = "/data1/mysql/"
+agentuser = "agent"
+agentpasswd = "youragentpasswd"
+mysqlrepluser = "repl"
+mysqlreplpasswd = "yourreplpasswd"
+mysqlrootpasswd = "yourrootpasswd"
