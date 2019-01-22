@@ -129,7 +129,7 @@ docker image prune -f
 - [一主多从的选主](docs/multi_slaves.md)
 - [通过调整 lease 长度来避免脑裂](docs/lease.md)
 - [单主模式](docs/spm.md)
-- [运维指导](docs/operation.md)
+- [运维指导](docs/product-install.md)
 - [测试与 benchmark](docs/benchmark.md)
 
 
