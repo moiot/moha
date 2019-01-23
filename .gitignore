@@ -28,3 +28,6 @@ moctl/recovery
 
 etc/docker-compose/agent/mysql-agent*
 etc/docker-compose/agent/supervise
+
+etc/docker-compose/postgresql/mysql-agent*
+etc/docker-compose/postgresql/supervise

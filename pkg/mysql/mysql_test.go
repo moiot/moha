@@ -15,6 +15,7 @@ package mysql_test
 
 import (
 	_ "database/sql"
+	"database/sql/driver"
 	"testing"
 
 	"github.com/moiot/moha/pkg/log"
@@ -59,9 +60,49 @@ func (s *testMySQLSuite) TestGetMasterStatus(c *C) {
 	c.Assert(gtid.Sets["85ab69d1-b21f-11e6-9c5e-64006a8978d2"].Intervals[0].Stop, Equals, int64(47))
 }
 
+func (s *testMySQLSuite) TestGetSlaveStatus(c *C) {
+
+	// mock mysql
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		log.Error("error when mock mysql ", err)
+		c.Fail()
+	}
+	defer db.Close()
+
+	rowTitles := []string{"Relay_Master_Log_File", "Exec_Master_Log_Pos", "Executed_Gtid_Set",
+		"Master_UUID", "Slave_IO_Running", "Slave_SQL_Running", "Seconds_Behind_Master"}
+	rowValues := []driver.Value{"mysql-bin.000005", 188858056, "85ab69d1-b21f-11e6-9c5e-64006a8978d2:1-46",
+		"85ab69d1-b21f-11e6-9c5e-64006a8978d2", "Yes", "No", "5"}
+	// mock behaviour
+	mock.ExpectQuery("SHOW SLAVE STATUS").
+		WillReturnRows(sqlmock.
+			NewRows(rowTitles).
+			AddRow(rowValues...))
+
+	slaveStatus, err := mysql.GetSlaveStatus(db)
+	c.Assert(err, IsNil)
+
+	for i, title := range rowTitles {
+		value, ok := slaveStatus[title]
+		c.Assert(ok, Equals, true)
+		if i != 1 {
+			c.Assert(value, Equals, rowValues[i])
+		} else {
+			c.Assert(value, Equals, "188858056")
+		}
+	}
+}
+
 func (s *testMySQLSuite) TestGetTxnIDFromGTIDStr(c *C) {
 	txnID, err := mysql.GetTxnIDFromGTIDStr("dde19958-0296-11e9-99b2-0242ac130008:0", "dde19958-0296-11e9-99b2-0242ac130008")
 	c.Assert(err, IsNil)
 	c.Assert(txnID, Equals, int64(1))
+
+	txnID, err = mysql.GetTxnIDFromGTIDStr("dde19958-0296-11e9-99b2-0242ac130008:0", "dde19958-0296-11e9-99b2-0242ac130009")
+	c.Assert(err, NotNil)
+
+	txnID, err = mysql.GetTxnIDFromGTIDStr("dde19958-0296-11e9-99b2-0242ac130008:", "dde19958-0296-11e9-99b2-0242ac130008")
+	c.Assert(err, NotNil)
 
 }

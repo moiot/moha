@@ -3,7 +3,7 @@ sudo: enabled
 language: go
 go:
   - "1.11"
-  - tip
+  #- tip
 
 services:
   - docker
@@ -11,8 +11,8 @@ services:
 jobs:
   include:
   - stage: tests
-    before_install:
-    - go get -t -v `go list ./...| grep -vE 'vendor|cmd|moctl'`
+    #before_install:
+    #- go get -t -v `go list ./...| grep -vE 'vendor|cmd|moctl'`
     install:
     - sudo pip install cpplint
     - make init
@@ -34,10 +34,10 @@ jobs:
     - make lint
     - make docker-agent
     - make test
+    - bash <(curl -s https://codecov.io/bash)
     - docker build etc/mysql-image/5.7.22-pmm/ -t moiot/mysql:5.7.22-pmm
     - make integration-test || { tail -n 200 logs/mysql-*.log; sleep 10; exit 1; }
-    after_success:
-    - bash <(curl -s https://codecov.io/bash)
+    #after_success:
     after_failure:
     - make clean-data
 

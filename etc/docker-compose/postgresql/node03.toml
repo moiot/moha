@@ -15,8 +15,8 @@ etcd-password = "root"
 data-dir = "/tmp/agent01"
 # listen addr
 addr = "http://127.0.0.1:15432"
-internal-service-host = "postgresql-node-1:5432"
-external-service-host = "127.0.0.1:5433"
+internal-service-host = "postgresql-node-3:5432"
+external-service-host = "127.0.0.1:5435"
 
 fork-process-file = "/agent/mysql-agent-service-boot-daemon"
 fork-process-args = [
@@ -27,8 +27,8 @@ fork-process-args = [
 fork-process-wait-second = 30
 
 # log related
-log-file = "/agent/log/postgresql-agent-1.log"
-error-log = "/agent/log/postgresql-agent-error-1.log"
+log-file = "/agent/log/postgresql-agent-3.log"
+error-log = "/agent/log/postgresql-agent-error-3.log"
 log-level = "info"
 log-max-size = 30
 log-max-days = 5

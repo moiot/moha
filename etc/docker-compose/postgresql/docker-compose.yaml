@@ -14,15 +14,12 @@ services:
     - '15433:15432'
     entrypoint: /agent/supervise
     volumes:
+    - './postgresql.conf:/var/lib/postgresql.conf:rw'
     - './node01.toml:/agent/config.toml'
-    - '../../../logs/supervise-1.log:/agent/log/supervise.log:rw'
     - '../../../logs:/agent/log:rw'
     - 'postgresql-node-1-data:/var/lib/postgresql/data:rw'
     container_name: postgresql-node-1
     environment:
-      MAX_CONNECTIONS: 500
-      WAL_KEEP_SEGMENTS: 256
-      MAX_WAL_SENDERS: 100
       REPLICATION_ROLE: master
       REPLICATION_USER: replication
       REPLICATION_PASSWORD: "replication"
@@ -39,15 +36,34 @@ services:
     - '15434:15432'
     entrypoint: /agent/supervise
     volumes:
+    - './postgresql.conf:/var/lib/postgresql.conf:rw'
     - './node02.toml:/agent/config.toml'
-    - '../../../logs/supervise-2.log:/agent/log/supervise.log:rw'
     - '../../../logs:/agent/log:rw'
     - 'postgresql-node-2-data:/var/lib/postgresql/data:rw'
     container_name: postgresql-node-2
     environment:
-      MAX_CONNECTIONS: 500
-      WAL_KEEP_SEGMENTS: 256
-      MAX_WAL_SENDERS: 100
+      REPLICATION_ROLE: master
+      REPLICATION_USER: replication
+      REPLICATION_PASSWORD: "replication"
+  postgresql-test-3:
+    build: .
+    depends_on:
+    - etcd0
+    - etcd1
+    - etcd2
+    - etcd3
+    - etcd4
+    ports:
+    - '5435:5432'
+    - '15435:15432'
+    entrypoint: /agent/supervise
+    volumes:
+    - './postgresql.conf:/var/lib/postgresql.conf:rw'
+    - './node03.toml:/agent/config.toml'
+    - '../../../logs:/agent/log:rw'
+    - 'postgresql-node-3-data:/var/lib/postgresql/data:rw'
+    container_name: postgresql-node-3
+    environment:
       REPLICATION_ROLE: master
       REPLICATION_USER: replication
       REPLICATION_PASSWORD: "replication"
@@ -177,6 +193,29 @@ services:
     - 'http://0.0.0.0:2380'
     - '-initial-cluster'
     - 'etcd0=http://etcd0:2380,etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380,etcd4=http://etcd4:2380'
+
+  haproxy-master:
+    image: 'haproxy:1.9.0'
+    depends_on:
+    - postgresql-test-1
+    - postgresql-test-2
+    ports:
+    - '5000:5000'
+    - '7000:7000'
+    container_name: haproxy-master
+    volumes:
+    - './haproxy-master.cfg:/usr/local/etc/haproxy/haproxy.cfg'
+  haproxy-slave:
+    image: 'haproxy:1.9.0'
+    depends_on:
+    - postgresql-test-1
+    - postgresql-test-2
+    ports:
+    - '5001:5000'
+    - '7001:7000'
+    container_name: haproxy-slave
+    volumes:
+    - './haproxy-slave.cfg:/usr/local/etc/haproxy/haproxy.cfg'
 
 volumes:
   etcd0: {}
