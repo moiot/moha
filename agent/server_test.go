@@ -123,6 +123,15 @@ func SetUp() {
 
 func (t *testAgentServerSuite) TearDownSuite(c *C) {}
 
+func (t *testAgentServerSuite) TestServerStart(c *C) {
+
+	s := newMockServer()
+	defer os.RemoveAll(s.cfg.DataDir)
+
+	err := s.Start()
+	c.Assert(err, NotNil)
+}
+
 func (t *testAgentServerSuite) TestUploadPromotionBinlog(c *C) {
 
 	s := newMockServer()
