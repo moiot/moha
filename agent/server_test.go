@@ -17,7 +17,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"net/http"
 	"os"
 	"runtime"
 	"runtime/debug"
@@ -143,51 +142,6 @@ func (t *testAgentServerSuite) TestUploadPromotionBinlog(c *C) {
 
 	err = s.uploadPromotionBinlog()
 	c.Assert(err, IsNil)
-}
-
-func (t *testAgentServerSuite) TestChangeMaster(c *C) {
-	w := &MockResponseWriter{}
-	s := newMockServer()
-	defer os.RemoveAll(s.cfg.DataDir)
-	s.isLeader = 1
-	s.leaderStopCh = make(chan interface{})
-	s.ChangeMaster(w, nil)
-	c.Assert(string(w.content), Equals, "current node is leader and has given up leader successfully\n")
-
-	s.isLeader = 0
-	s.ChangeMaster(w, nil)
-	c.Assert(string(w.content), Equals, "current node is not leader, change master should be applied on leader\n")
-}
-
-func (t *testAgentServerSuite) TestSetReadOnly(c *C) {
-	w := &MockResponseWriter{}
-
-	s := newMockServer()
-	s.isLeader = 1
-	s.leaderStopCh = make(chan interface{})
-	defer os.RemoveAll(s.cfg.DataDir)
-	s.SetReadOnly(w, nil)
-	c.Assert(string(w.content), Equals, "set current node readonly success\n")
-
-	s.isLeader = 0
-
-	s.SetReadOnly(w, nil)
-	c.Assert(string(w.content), Equals, "current node is not leader, so no need to set readonly\n")
-}
-
-func (t *testAgentServerSuite) TestSetReadWrite(c *C) {
-	w := &MockResponseWriter{}
-	s := newMockServer()
-	s.isLeader = 1
-	s.leaderStopCh = make(chan interface{})
-	defer os.RemoveAll(s.cfg.DataDir)
-	s.SetReadWrite(w, nil)
-	c.Assert(string(w.content), Equals, "set current node readwrite success\n")
-
-	s.isLeader = 0
-
-	s.SetReadWrite(w, nil)
-	c.Assert(string(w.content), Equals, "current node is not leader, so no need to set readwrite\n")
 }
 
 func (t *testAgentServerSuite) TestUpdateBinlogPosAsMaster(c *C) {
@@ -665,19 +619,6 @@ func (m *MockServiceManager) LoadReplicationInfoOfSlave() (masterUUID, executedG
 func (m *MockServiceManager) GetServerUUID() (string, error) {
 	return m.serverUUID, nil
 }
-
-type MockResponseWriter struct {
-	content []byte
-}
-
-func (m *MockResponseWriter) Header() http.Header {
-	return nil
-}
-func (m *MockResponseWriter) Write(b []byte) (int, error) {
-	m.content = b
-	return len(b), nil
-}
-func (m *MockResponseWriter) WriteHeader(int) {}
 
 func funcName(skip int) string {
 	pc, _, _, _ := runtime.Caller(skip)

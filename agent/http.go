@@ -26,6 +26,7 @@ func (s *Server) MasterCheck(w http.ResponseWriter, r *http.Request) {
 
 	if s.amILeader() {
 		w.Write([]byte("ok"))
+		w.WriteHeader(http.StatusOK)
 	} else {
 		http.Error(w, http.StatusText(http.StatusTeapot), http.StatusTeapot)
 	}
@@ -36,6 +37,7 @@ func (s *Server) SlaveCheck(w http.ResponseWriter, r *http.Request) {
 
 	if !s.amILeader() || s.amISPM() {
 		w.Write([]byte("ok"))
+		w.WriteHeader(http.StatusOK)
 	} else {
 		http.Error(w, http.StatusText(http.StatusTeapot), http.StatusTeapot)
 	}
