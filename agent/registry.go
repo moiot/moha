@@ -53,12 +53,16 @@ func (r *EtcdRegistry) Close() error {
 }
 
 // RegisterNode registers node in the etcd.
-func (r *EtcdRegistry) RegisterNode(pctx context.Context, nodeID, internalHost, externalHost string, ttl int64) error {
+func (r *EtcdRegistry) RegisterNode(pctx context.Context,
+	nodeID, internalHost, externalHost string,
+	ttl int64,
+	as *agentStatus) error {
 
 	obj := &NodeStatus{
 		NodeID:       nodeID,
 		InternalHost: internalHost,
 		ExternalHost: externalHost,
+		IsMaster:     as.Master,
 	}
 	objstr, err := json.Marshal(obj)
 	if err != nil {

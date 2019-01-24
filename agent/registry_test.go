@@ -42,10 +42,16 @@ func (t *testRegistrySuite) TestRegisterNode(c *C) {
 		InternalHost: "test",
 		ExternalHost: "test",
 		IsAlive:      true,
+		IsMaster:     true,
+	}
+
+	as := &agentStatus{
+		Master: true,
 	}
 
 	// validate register logic.
-	err := r.RegisterNode(context.Background(), ns.NodeID, ns.ExternalHost, ns.InternalHost, 30)
+	err := r.RegisterNode(context.Background(),
+		ns.NodeID, ns.ExternalHost, ns.InternalHost, 30, as)
 	c.Assert(err, IsNil)
 	// check the node status of the registered node works as expected.
 	mustEqualStatus(c, r, ns.NodeID, ns)
@@ -66,10 +72,16 @@ func (t *testRegistrySuite) TestRefreshNode(c *C) {
 		NodeID:       "test",
 		InternalHost: "test",
 		ExternalHost: "test",
+		IsMaster:     false,
+	}
+
+	as := &agentStatus{
+		Master: false,
 	}
 
 	// register node.
-	err := r.RegisterNode(context.Background(), ns.NodeID, ns.InternalHost, ns.ExternalHost, 30)
+	err := r.RegisterNode(context.Background(),
+		ns.NodeID, ns.InternalHost, ns.ExternalHost, 30, as)
 	c.Assert(err, IsNil)
 
 	// refresh node 'alive' child.

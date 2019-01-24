@@ -18,7 +18,6 @@ import (
 	"io/ioutil"
 	"os"
 	"strings"
-
 	"time"
 
 	. "gopkg.in/check.v1"
@@ -51,11 +50,16 @@ func (t *testNodeSuite) TestNodeCreate(c *C) {
 	c.Assert(err, IsNil)
 
 	an := node.(*agentNode)
+	an.getAgentStatus = func() *agentStatus {
+		return &agentStatus{Master: true}
+	}
+
 	ns := &NodeStatus{
 		NodeID:       an.id,
 		InternalHost: an.internalHost,
 		ExternalHost: an.externalHost,
 		IsAlive:      true,
+		IsMaster:     true,
 	}
 
 	// check register.

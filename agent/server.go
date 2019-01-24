@@ -136,13 +136,16 @@ func NewServer(cfg *Config) (*Server, error) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	return &Server{
+	s := &Server{
 		ctx:        ctx,
 		cancel:     cancel,
 		node:       n,
 		cfg:        cfg,
 		shutdownCh: make(chan interface{}),
-	}, nil
+	}
+
+	n.SetAgentStatusFunc(s.getServerStatus)
+	return s, nil
 }
 
 // Start runs Server, and maintains heartbeat to etcd.
@@ -584,6 +587,21 @@ func (s *Server) setServiceReadonlyOrShutdown() {
 	}
 }
 
+func (s *Server) getServerStatus() *agentStatus {
+	return &agentStatus{
+		ID:                  s.node.ID(),
+		Master:              s.amILeader(),
+		OnlyFollow:          s.isOnlyFollow(),
+		IOThreadOK:          latestPos.SlaveIORunning,
+		SQLThreadOK:         latestPos.SlaveSQLRunning,
+		Readonly:            s.serviceManager.IsReadOnly(),
+		SecondsBehindMaster: latestPos.SecondsBehindMaster,
+
+		Term:              s.term,
+		SinglePointMaster: s.amISPM(),
+	}
+}
+
 func (s *Server) setIsLeaderToTrue() {
 	atomic.StoreInt32(&s.isLeader, 1)
 	agentIsLeader.With(prometheus.Labels{"cluster_name": s.cfg.ClusterName}).Set(1)
@@ -878,4 +896,18 @@ func (s *Server) preWatch(leader *Leader) (err error) {
 	}
 	// TODO add logic: if current gtid is ahead master gtid, then deregister current node
 	return nil
+}
+
+type agentStatus struct {
+	ID                  string `json:"id"`
+	Master              bool   `json:"master"`
+	OnlyFollow          bool   `json:"only_follow"`
+	IOThreadOK          bool   `json:"io_thread_ok"`
+	SQLThreadOK         bool   `json:"sql_thread_ok"`
+	Readonly            bool   `json:"readonly"`
+	SecondsBehindMaster int    `json:"seconds_behind_master"`
+
+	Term uint64 `json:"term"`
+
+	SinglePointMaster bool `json:"single_point_master"`
 }
