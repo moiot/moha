@@ -35,6 +35,9 @@ func (t *testMySQLServiceManagerSuite) TestSetReadOnly(c *C) {
 
 	err = testedManager.SetReadOnly()
 	c.Assert(err, IsNil)
+
+	isReadonly := testedManager.IsReadOnly()
+	c.Assert(isReadonly, Equals, true)
 }
 
 func (t *testMySQLServiceManagerSuite) TestSetReadWrite(c *C) {
@@ -50,6 +53,9 @@ func (t *testMySQLServiceManagerSuite) TestSetReadWrite(c *C) {
 
 	err = testedManager.SetReadWrite()
 	c.Assert(err, IsNil)
+
+	isReadonly := testedManager.IsReadOnly()
+	c.Assert(isReadonly, Equals, false)
 }
 
 func (t *testMySQLServiceManagerSuite) TestPromoteToMaster(c *C) {

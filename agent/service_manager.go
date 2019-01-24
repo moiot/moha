@@ -17,6 +17,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/juju/errors"
@@ -27,6 +28,8 @@ import (
 
 // ServiceManager defines some functions to manage service
 type ServiceManager interface {
+	// IsReadOnly returns true if current service is read-only, else false
+	IsReadOnly() bool
 	// SetReadOnly set service readonly
 	SetReadOnly() error
 	// SetReadWrite set service readwrite
@@ -89,13 +92,29 @@ type mysqlServiceManager struct {
 	mysqlNet            string
 	replicationUser     string
 	replicationPassword string
+
+	readonly int32
+}
+
+func (m *mysqlServiceManager) IsReadOnly() bool {
+	return atomic.LoadInt32(&m.readonly) == 1
 }
 
 func (m *mysqlServiceManager) SetReadOnly() error {
-	return mysql.SetReadOnly(m.db)
+	err := mysql.SetReadOnly(m.db)
+	if err != nil {
+		return err
+	}
+	atomic.StoreInt32(&m.readonly, 1)
+	return nil
 }
 func (m *mysqlServiceManager) SetReadWrite() error {
-	return mysql.SetReadWrite(m.db)
+	err := mysql.SetReadWrite(m.db)
+	if err != nil {
+		return err
+	}
+	atomic.StoreInt32(&m.readonly, 0)
+	return nil
 }
 func (m *mysqlServiceManager) PromoteToMaster() error {
 	return mysql.PromoteToMaster(m.db, m.replicationUser, m.mysqlNet)

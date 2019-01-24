@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"net/http"
 	"os"
 
@@ -86,6 +87,26 @@ func (t *testAgentServerSuite) TestSlaveCheck(c *C) {
 	s.isSinglePointMaster = 1
 	s.SlaveCheck(w, nil)
 	c.Assert(w.statusCode, Equals, 200)
+
+}
+
+func (t *testAgentServerSuite) TestStatus(c *C) {
+	s := newMockServer()
+	s.isLeader = 1
+	defer os.RemoveAll(s.cfg.DataDir)
+
+	w := NewMockResponseWriter()
+	s.Status(w, nil)
+	status := &agentStatus{}
+	err := json.Unmarshal(w.content, status)
+	c.Assert(err, IsNil)
+
+	c.Assert(status.ID, Equals, s.node.ID())
+	c.Assert(status.Term, Equals, s.term)
+	c.Assert(status.Master, Equals, s.amILeader())
+	c.Assert(status.SinglePointMaster, Equals, s.amISPM())
+	c.Assert(status.Readonly, Equals, s.serviceManager.IsReadOnly())
+	c.Assert(status.OnlyFollow, Equals, s.isOnlyFollow())
 
 }
 
