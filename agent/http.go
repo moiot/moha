@@ -166,34 +166,9 @@ func (s *Server) SetOnlyFollow(w http.ResponseWriter, r *http.Request) {
 
 // Status prints the status of current node
 func (s *Server) Status(w http.ResponseWriter, r *http.Request) {
-	status := agentStatus{
-		ID:                  s.node.ID(),
-		Master:              s.amILeader(),
-		OnlyFollow:          s.isOnlyFollow(),
-		IOThreadOK:          latestPos.SlaveIORunning,
-		SQLThreadOK:         latestPos.SlaveSQLRunning,
-		Readonly:            s.serviceManager.IsReadOnly(),
-		SecondsBehindMaster: latestPos.SecondsBehindMaster,
-
-		Term:              s.term,
-		SinglePointMaster: s.amISPM(),
-	}
+	status := s.getServerStatus()
 
 	encoder := json.NewEncoder(w)
 	encoder.Encode(status)
 
-}
-
-type agentStatus struct {
-	ID                  string `json:"id"`
-	Master              bool   `json:"master"`
-	OnlyFollow          bool   `json:"only_follow"`
-	IOThreadOK          bool   `json:"io_thread_ok"`
-	SQLThreadOK         bool   `json:"sql_thread_ok"`
-	Readonly            bool   `json:"readonly"`
-	SecondsBehindMaster int    `json:"seconds_behind_master"`
-
-	Term uint64 `json:"term"`
-
-	SinglePointMaster bool `json:"single_point_master"`
 }

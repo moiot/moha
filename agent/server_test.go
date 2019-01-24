@@ -541,6 +541,7 @@ func (n *MockNode) Register(ctx context.Context) error {
 }
 func (n *MockNode) Unregister(ctx context.Context) error       { return nil }
 func (n *MockNode) Heartbeat(ctx context.Context) <-chan error { return nil }
+func (n *MockNode) SetAgentStatusFunc(f func() *agentStatus)   {}
 func (n *MockNode) RawClient() *etcd.Client                    { return n.client }
 func (n *MockNode) NodesStatus(ctx context.Context) ([]*NodeStatus, error) {
 	return []*NodeStatus{
@@ -641,7 +642,9 @@ func newMockServer() *Server {
 	etcdRegistry.RegisterNode(s.ctx,
 		"another_leader",
 		"host1",
-		"host1", 100)
+		"host1",
+		100,
+		&agentStatus{Master: true})
 	log.Infof("new mockserver cfg is %+v", cfg)
 	return s
 }

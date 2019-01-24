@@ -42,6 +42,8 @@ type Node interface {
 	// Heartbeat refreshes node state in etcd.
 	// key 'root/nodes/<nodeID/alive' will disappear after TTL time passed.
 	Heartbeat(ctx context.Context) <-chan error
+	// SetAgentStatusFunc set the function that gets agent status
+	SetAgentStatusFunc(func() *agentStatus)
 	// RowClient returns raw etcd client.
 	RawClient() *etcd.Client
 	// NodeStatus return one node status
@@ -68,6 +70,7 @@ type NodeStatus struct {
 	NodeID       string
 	InternalHost string
 	ExternalHost string
+	IsMaster     bool     `json:"master,omitempty"`
 	IsAlive      bool     `json:",omitempty"`
 	LatestPos    Position `json:",omitempty"`
 }
@@ -79,6 +82,8 @@ type agentNode struct {
 	externalHost    string
 	registerTTL     int64
 	refreshInterval time.Duration
+
+	getAgentStatus func() *agentStatus
 }
 
 // NewAgentNode returns a MySQL agentNode that monitor MySQL server.
@@ -125,8 +130,13 @@ func NewAgentNode(cfg *Config) (Node, error) {
 	return node, nil
 }
 
+func (n *agentNode) SetAgentStatusFunc(f func() *agentStatus) {
+	n.getAgentStatus = f
+}
+
 func (n *agentNode) Register(ctx context.Context) error {
-	err := n.RegisterNode(ctx, n.id, n.internalHost, n.externalHost, n.registerTTL)
+	as := n.getAgentStatus()
+	err := n.RegisterNode(ctx, n.id, n.internalHost, n.externalHost, n.registerTTL, as)
 	if err != nil {
 		return errors.Trace(err)
 	}
