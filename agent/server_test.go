@@ -573,6 +573,9 @@ type MockServiceManager struct {
 	serverUUID               string
 }
 
+func (m *MockServiceManager) IsReadOnly() bool {
+	return true
+}
 func (m *MockServiceManager) SetReadOnly() error {
 	return nil
 }

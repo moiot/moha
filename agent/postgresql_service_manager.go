@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -82,6 +83,12 @@ type postgresqlServiceManager struct {
 
 	// uniqueID is the unique id that distinguish each PG server
 	uniqueID string
+
+	readonly int32
+}
+
+func (m *postgresqlServiceManager) IsReadOnly() bool {
+	return atomic.LoadInt32(&m.readonly) == 1
 }
 
 func (m *postgresqlServiceManager) SetReadOnly() error {
@@ -93,7 +100,11 @@ func (m *postgresqlServiceManager) SetReadOnly() error {
 	// reload postgresql config
 	log.Info("reload postgresql config")
 	err = postgresql.ReloadConf(m.db)
-	return err
+	if err != nil {
+		return err
+	}
+	atomic.StoreInt32(&m.readonly, 1)
+	return nil
 }
 func (m *postgresqlServiceManager) SetReadWrite() error {
 	// change postgresql.conf
@@ -103,7 +114,11 @@ func (m *postgresqlServiceManager) SetReadWrite() error {
 	// reload postgresql config
 	log.Info("reload postgresql config")
 	err = postgresql.ReloadConf(m.db)
-	return err
+	if err != nil {
+		return err
+	}
+	atomic.StoreInt32(&m.readonly, 0)
+	return nil
 }
 func (m *postgresqlServiceManager) PromoteToMaster() error {
 	dlocker, err := m.lockGenerator.NewLocker()

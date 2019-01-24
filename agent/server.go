@@ -19,7 +19,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
 	"os"
 	"runtime/debug"
 	"sync"
@@ -270,25 +269,6 @@ func (s *Server) Close() {
 
 func (s *Server) forceClose() {
 	os.Exit(3)
-}
-
-func (s *Server) initHTTPServer() (*http.Server, error) {
-	listenURL, err := url.Parse(s.cfg.ListenAddr)
-	if err != nil {
-		return nil, errors.Annotate(err, "fail to parse listen address")
-	}
-
-	// listen & serve.
-	httpSrv := &http.Server{Addr: fmt.Sprintf(":%s", listenURL.Port())}
-	// TODO add the new status function to detect all agents' status
-	// http.HandleFunc("/status", s.Status)
-	http.HandleFunc("/changeMaster", s.ChangeMaster)
-	http.HandleFunc("/setReadOnly", s.SetReadOnly)
-	http.HandleFunc("/setReadWrite", s.SetReadWrite)
-	http.HandleFunc("/setOnlyFollow", s.SetOnlyFollow)
-	http.HandleFunc("/masterCheck", s.MasterCheck)
-	http.HandleFunc("/slaveCheck", s.SlaveCheck)
-	return httpSrv, nil
 }
 
 func (s *Server) writeFD() {
