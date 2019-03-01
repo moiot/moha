@@ -179,9 +179,10 @@ https://coreos.com/etcd/docs/latest/op-guide/monitoring.html
 docker push moiot/moha:v2.6.1
 ```
 
-#### 3.2 下载源代码，并编译moha/moctl/conf.go
+#### 3.2 下载源代码，并编译moha/moctl/conf.go 
 ```
-docker push moiot/moha:v2.6.1
+git clone https://github.com/moiot/moha.git
+cd moha/moctl && go build conf.go 
 ```
 #### 3.3 修改demon配置文件
 ```
